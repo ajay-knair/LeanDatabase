@@ -9,7 +9,7 @@ namespace LeanDatabase
 We prove some of the basic properties of Relational Algebra on our existing definition.
 -/
 
-variable {n : Nat} {types : Fin n → Type}
+variable {n : Nat} {types : Fin n → Type}[∀ a, DecidableEq (types a)]
 
 /-! ### Commutativity & Associativity -/
 
