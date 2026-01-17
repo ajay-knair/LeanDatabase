@@ -65,6 +65,20 @@ theorem restriction_idempotence (p : (i : Fin n) → types i → Bool) (r : Type
     restriction p (restriction p r) = restriction p r := by
   simp only [restriction, Set.mem_setOf_eq, and_self_right]
 
+-- Theorem: Idempotence of Intersection
+-- R ∩ R = R
+theorem inter_idempotence (r : TypedRelation types) :
+    intersection r r = r := by
+  simp only [intersection, Set.inter_self]
+
+-- Theorem: Absorption Law
+-- R ∪ (R ∩ S) = R
+theorem union_absorb_inter (r1 r2 : TypedRelation types) :
+    union r1 (intersection r1 r2) = r1 := by
+  simp only [union, intersection]
+  ext x
+  repeat grind
+
 
 /-! ### Cascading Selection (Splitting Logic) -/
 
@@ -112,7 +126,7 @@ theorem inter_zero (r : TypedRelation types) :
     (intersection r (emptyRel r.labels)).rows = ∅ := by
   simp only [intersection, emptyRel, Set.inter_empty]
 
-/-! ### 7. Monotonicity -/
+/-! ### Monotonicity -/
 
 -- Theorem: Selection is Monotone
 -- If R ⊆ S, then σ(R) ⊆ σ(S)
@@ -121,6 +135,23 @@ theorem restriction_monotone (p : (i : Fin n) → types i → Bool) (r1 r2 : Typ
     (restriction p r1).rows ⊆ (restriction p r2).rows := by
   intro h_subset
   simp [restriction]
+  grind
+
+/-! ### Other Important Theorems -/
+-- Theorem: Push Selection into Intersection (Left Side)
+-- σ_p(R ∩ S) = σ_p(R) ∩ S
+-- "If you join two tables and then filter, it is slow. You can filter first and then join."
+theorem restriction_push_inter_left (p : (i : Fin n) → types i → Bool) (r1 r2 : TypedRelation types) :
+    restriction p (intersection r1 r2) = intersection (restriction p r1) r2 := by
+  simp [restriction, intersection]
+  ext x
+  grind
+
+-- Theorem: De Morgan's Law for Difference
+-- R - (S ∪ T) = (R - S) ∩ (R - T)
+theorem diff_union_distrib (r s t : TypedRelation types) :
+    minus r (union s t) = intersection (minus r s) (minus r t) := by
+  simp [minus, union, intersection]
   grind
 
 end LeanDatabase

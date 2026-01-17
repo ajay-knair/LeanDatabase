@@ -12,11 +12,13 @@ abbrev TypedTuple {n : Nat} (types : Fin n → Type) := (i : Fin n) → types i
 Labels - Mapping from index to String labels
 Rows - Data (in set) for all the TypedTuples
 -/
+@[ext]
 structure TypedRelation {n : Nat} (types : Fin n → Type) where
   labels : Fin n → String
   rows   : Set (TypedTuple types) -- Relations use Sets by definition
 deriving Inhabited
 
+@[ext]
 structure TypedListRelation {n : Nat} (types : Fin n → Type) where
   labels : Fin n → String
   rows   : List (TypedTuple types)
@@ -112,8 +114,7 @@ theorem projection_card {m : Nat} (indices : Fin m → Fin n)
 theorem restriction_length_le {types : Fin n → Type}
     (condition : (i : Fin n) → types i → Bool) (rel : TypedRelation types) :
     (restriction condition rel).rows.ncard ≤ rel.rows.ncard := by
-  simp [restriction]
-
+  simp only [restriction]
   sorry
 
 
