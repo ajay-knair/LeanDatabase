@@ -9,7 +9,8 @@ namespace LeanDatabase
 We prove some of the basic properties of Relational Algebra on our existing definition.
 -/
 
-variable {n : Nat} {types : Fin n → Type}[∀ a, DecidableEq (types a)]
+variable {n : Nat} {types : Fin n → Type}
+variable [∀ i, DecidableEq (types i)]
 
 /-! ### Commutativity & Associativity -/
 
@@ -17,19 +18,18 @@ variable {n : Nat} {types : Fin n → Type}[∀ a, DecidableEq (types a)]
 theorem union_comm (r1 r2 : TypedRelation types) (h : r1.labels = r2.labels) :
     union r1 r2 = union r2 r1 := by
   simp_all only [union, TypedRelation.mk.injEq, true_and]
-  rw [Set.union_comm] -- Uses Mathlib's proof for Sets
+  grind
 
 -- Theorem: Union is Associative
 theorem union_assoc (r1 r2 r3 : TypedRelation types) :
     union (union r1 r2) r3 = union r1 (union r2 r3) := by
-  simp [union]
-  rw [Set.union_assoc]
+  simp only [union, Finset.union_assoc]
 
 -- Theorem: Intersection is Commutative
 theorem inter_comm (r1 r2 : TypedRelation types) (h : r1.labels = r2.labels) :
     intersection r1 r2 = intersection r2 r1 := by
   simp_all only [intersection, TypedRelation.mk.injEq, true_and]
-  rw [Set.inter_comm]
+  grind
 
 /-! ### Distributivity-/
 
@@ -38,21 +38,23 @@ theorem inter_comm (r1 r2 : TypedRelation types) (h : r1.labels = r2.labels) :
 theorem restriction_union_distrib (p : (i : Fin n) → types i → Bool)
     (r1 r2 : TypedRelation types) :
     restriction p (union r1 r2) = union (restriction p r1) (restriction p r2) := by
-  simp only [restriction, union, Set.mem_union, Set.sep_union]
+  simp only [restriction, union, TypedRelation.mk.injEq, true_and]
+  grind
 
 -- Theorem: Selection Distributes over Intersection
 -- σ(R ∩ S) = σ(R) ∩ σ(S)
 theorem restriction_inter_distrib (p : (i : Fin n) → types i → Bool)
     (r1 r2 : TypedRelation types) :
     restriction p (intersection r1 r2) = intersection (restriction p r1) (restriction p r2) := by
-  simp only [restriction, intersection, Set.mem_inter_iff, Set.sep_inter]
-
+  simp only [restriction, intersection, TypedRelation.mk.injEq, true_and]
+  grind
 
 /-! ### Selection Properties (Filtering Logic) -/
 
 -- Theorem: Commutativity of Selection
 -- σ_a( σ_b( R ) ) = σ_b( σ_a( R ) )
 -- "The order of filters does not matter"
+omit [∀ i, DecidableEq (types i)] in
 theorem restriction_comm (p1 p2 : (i : Fin n) → types i → Bool) (r : TypedRelation types) :
     restriction p1 (restriction p2 r) = restriction p2 (restriction p1 r) := by
   simp_all [restriction]
@@ -61,15 +63,17 @@ theorem restriction_comm (p1 p2 : (i : Fin n) → types i → Bool) (r : TypedRe
 -- Theorem: Idempotence of Selection
 -- σ_p ( σ_p ( R ) ) = σ_p( R )
 -- "Filtering twice is the same as filtering once"
+omit [∀ i, DecidableEq (types i)] in
 theorem restriction_idempotence (p : (i : Fin n) → types i → Bool) (r : TypedRelation types) :
     restriction p (restriction p r) = restriction p r := by
-  simp only [restriction, Set.mem_setOf_eq, and_self_right]
+  simp only [restriction, TypedRelation.mk.injEq, Finset.filter_eq_self, Finset.mem_filter, and_imp,
+    imp_self, implies_true, and_self]
 
 -- Theorem: Idempotence of Intersection
 -- R ∩ R = R
 theorem inter_idempotence (r : TypedRelation types) :
     intersection r r = r := by
-  simp only [intersection, Set.inter_self]
+  simp only [intersection, Finset.inter_self]
 
 -- Theorem: Absorption Law
 -- R ∪ (R ∩ S) = R
@@ -85,10 +89,11 @@ theorem union_absorb_inter (r1 r2 : TypedRelation types) :
 -- Theorem: Cascading Selection
 -- σ_{p1}(σ_{p2}(R)) = σ_{p1 ∧ p2}(R)
 -- "Applying two filters sequentially is the same as applying them combined with AND."
+omit [∀ i, DecidableEq (types i)] in
 theorem restriction_cascade (p1 p2 : (i : Fin n) → types i → Bool) (r : TypedRelation types) :
     restriction p1 (restriction p2 r) =
     restriction (fun i x => p1 i x && p2 i x) r := by
-  simp [restriction]
+  simp only [restriction, Bool.and_eq_true, TypedRelation.mk.injEq, true_and]
   grind
 
 /-! ### Difference Properties -/
@@ -106,7 +111,7 @@ theorem restriction_diff_distrib (p : (i : Fin n) → types i → Bool) (r1 r2 :
 -- R - R = ∅
 theorem diff_self (r : TypedRelation types) :
     (minus r r).rows = ∅ := by
-  simp only [minus, sdiff_self, Set.bot_eq_empty]
+    simp only [minus, sdiff_self, Finset.bot_eq_empty]
 
 /-! ### Identity and Zero Laws -/
 
@@ -118,23 +123,22 @@ def emptyRel (l : Fin n → String) : TypedRelation types :=
 -- R ∪ ∅ = R
 theorem union_identity (r : TypedRelation types) :
     union r (emptyRel r.labels) = r := by
-  simp only [union, emptyRel, Set.union_empty]
+  simp only [union, emptyRel, Finset.union_empty]
 
 -- Theorem: Zero for Intersection
 -- R ∩ ∅ = ∅
 theorem inter_zero (r : TypedRelation types) :
     (intersection r (emptyRel r.labels)).rows = ∅ := by
-  simp only [intersection, emptyRel, Set.inter_empty]
+  exact Finset.disjoint_iff_inter_eq_empty.mp fun ⦃x⦄ a a_1 ↦ a_1
 
 /-! ### Monotonicity -/
 
 -- Theorem: Selection is Monotone
 -- If R ⊆ S, then σ(R) ⊆ σ(S)
+omit [∀ i, DecidableEq (types i)] in
 theorem restriction_monotone (p : (i : Fin n) → types i → Bool) (r1 r2 : TypedRelation types) :
     r1.rows ⊆ r2.rows →
     (restriction p r1).rows ⊆ (restriction p r2).rows := by
-  intro h_subset
-  simp [restriction]
   grind
 
 /-! ### Other Important Theorems -/
@@ -144,7 +148,6 @@ theorem restriction_monotone (p : (i : Fin n) → types i → Bool) (r1 r2 : Typ
 theorem restriction_push_inter_left (p : (i : Fin n) → types i → Bool) (r1 r2 : TypedRelation types) :
     restriction p (intersection r1 r2) = intersection (restriction p r1) r2 := by
   simp [restriction, intersection]
-  ext x
   grind
 
 -- Theorem: De Morgan's Law for Difference
