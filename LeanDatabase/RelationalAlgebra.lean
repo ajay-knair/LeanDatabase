@@ -21,20 +21,88 @@ theorem union_comm (r1 r2 : TypedRelation types) (h : r1.labels = r2.labels) :
   grind
 
 -- Theorem: Union is Associative
+-- (R ⋃ S) ⋃ T = R ⋃ (S ⋃ T)
 theorem union_assoc (r1 r2 r3 : TypedRelation types) :
     union (union r1 r2) r3 = union r1 (union r2 r3) := by
   simp only [union, Finset.union_assoc]
 
--- Theorem: Intersection is Commutative
+-- Theorem: Intersection is Commutative ( R ∩ S = S ∩ R)
 theorem inter_comm (r1 r2 : TypedRelation types) (h : r1.labels = r2.labels) :
     intersection r1 r2 = intersection r2 r1 := by
   simp_all only [intersection, TypedRelation.mk.injEq, true_and]
   grind
 
+-- Theorem: Idempotence of Intersection
+-- R ∩ R = R
+theorem inter_idempotence (r : TypedRelation types) :
+    intersection r r = r := by
+  simp only [intersection, Finset.inter_self]
+
+-- Theorem: Absorption Law
+-- R ∪ (R ∩ S) = R
+theorem union_absorb_inter (r1 r2 : TypedRelation types) :
+    union r1 (intersection r1 r2) = r1 := by
+  simp only [union, intersection]
+  ext x
+  repeat grind
+
+-- Theorem: Distributivity of Intersection over Union
+-- R ∩ (S ∪ T) = (R ∩ S) ∪ (R ∩ T)
+-- "Joining a combined table is the same as joining each part separately."
+theorem inter_distrib_union (r1 r2 r3 : TypedRelation types) :
+    intersection r1 (union r2 r3) = union (intersection r1 r2) (intersection r1 r3) := by
+  simp only [intersection, union, TypedRelation.mk.injEq, true_and]
+  ext x
+  grind
+
+-- Theorem: Distributivity of Union over Intersection
+-- R ∪ (S ∩ T) = (R ∪ S) ∩ (R ∪ T)
+theorem union_distrib_inter (r1 r2 r3 : TypedRelation types) :
+    union r1 (intersection r2 r3) = intersection (union r1 r2) (union r1 r3) := by
+  simp only [union, intersection, TypedRelation.mk.injEq, true_and]
+  ext x
+  grind
+
+-- Theorem: Dual Absorption Law
+-- R ∩ (R ∪ S) = R
+theorem inter_absorb_union (r1 r2 : TypedRelation types) :
+    intersection r1 (union r1 r2) = r1 := by
+  simp only [intersection, union]
+  ext x
+  · simp
+  · grind
+
+-- Theorem: Difference Chain
+-- (R - S) - T = R - (S ∪ T)
+-- "Excluding S then excluding T is the same as excluding (S or T) at once."
+theorem diff_diff_eq_diff_union (r s t : TypedRelation types) :
+    minus (minus r s) t = minus r (union s t) := by
+  simp [minus, union]
+  ext x
+  grind
+
+-- Theorem: Identity for Difference
+-- R - ∅ = R
+theorem diff_empty (r : TypedRelation types) :
+    minus r (emptyRel r.labels) = r := by
+  simp [minus, emptyRel, Finset.sdiff_empty]
+
+-- Theorem: Zero for Difference (Left)
+-- ∅ - R = ∅
+theorem empty_diff (r : TypedRelation types) :
+    (minus (emptyRel r.labels) r).rows = ∅ := by
+  simp [minus, emptyRel, Finset.empty_sdiff]
+
+-- Theorem: Self-Difference is Empty
+-- R - R = ∅
+theorem diff_self (r : TypedRelation types) :
+    (minus r r).rows = ∅ := by
+    simp only [minus, sdiff_self, Finset.bot_eq_empty]
+
 /-! ### Distributivity-/
 
 -- Theorem: Selection Distributes over Union
--- σ(R ∪ S) = σ(R) ∪ σ(S)
+-- σ_p(R ∪ S) = σ_p(R) ∪ σ_p(S)
 theorem restriction_union_distrib (p : (i : Fin n) → types i → Bool)
     (r1 r2 : TypedRelation types) :
     restriction p (union r1 r2) = union (restriction p r1) (restriction p r2) := by
@@ -42,7 +110,7 @@ theorem restriction_union_distrib (p : (i : Fin n) → types i → Bool)
   grind
 
 -- Theorem: Selection Distributes over Intersection
--- σ(R ∩ S) = σ(R) ∩ σ(S)
+-- σ_p(R ∩ S) = σ_p(R) ∩ σ_p(S)
 theorem restriction_inter_distrib (p : (i : Fin n) → types i → Bool)
     (r1 r2 : TypedRelation types) :
     restriction p (intersection r1 r2) = intersection (restriction p r1) (restriction p r2) := by
@@ -69,20 +137,6 @@ theorem restriction_idempotence (p : (i : Fin n) → types i → Bool) (r : Type
   simp only [restriction, TypedRelation.mk.injEq, Finset.filter_eq_self, Finset.mem_filter, and_imp,
     imp_self, implies_true, and_self]
 
--- Theorem: Idempotence of Intersection
--- R ∩ R = R
-theorem inter_idempotence (r : TypedRelation types) :
-    intersection r r = r := by
-  simp only [intersection, Finset.inter_self]
-
--- Theorem: Absorption Law
--- R ∪ (R ∩ S) = R
-theorem union_absorb_inter (r1 r2 : TypedRelation types) :
-    union r1 (intersection r1 r2) = r1 := by
-  simp only [union, intersection]
-  ext x
-  repeat grind
-
 
 /-! ### Cascading Selection (Splitting Logic) -/
 
@@ -107,17 +161,14 @@ theorem restriction_diff_distrib (p : (i : Fin n) → types i → Bool) (r1 r2 :
   ext x
   grind
 
--- Theorem: Self-Difference is Empty
--- R - R = ∅
-theorem diff_self (r : TypedRelation types) :
-    (minus r r).rows = ∅ := by
-    simp only [minus, sdiff_self, Finset.bot_eq_empty]
-
 /-! ### Identity and Zero Laws -/
 
--- Definition of an Empty Relation (The "Zero" element)
-def emptyRel (l : Fin n → String) : TypedRelation types :=
-  { labels := l, rows := ∅ }
+-- Theorem: Selection on Empty is Empty
+-- σ(∅) = ∅
+omit [∀ i, DecidableEq (types i)] in
+theorem restriction_empty (p : (i : Fin n) → types i → Bool) (l : Fin n → String) :
+    (restriction p (emptyRel l)).rows = ∅ := by
+  simp [restriction, emptyRel]
 
 -- Theorem: Identity for Union
 -- R ∪ ∅ = R
