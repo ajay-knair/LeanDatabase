@@ -28,6 +28,11 @@ instance instDecidableEqAppend : ∀ i, DecidableEq (Fin.append types1 types2 i)
       h ▸ inferInstance)
     i
 
+/-
+## Cross Product
+Note: we rename labels if they are same bases on given aliases prefix
+-/
+
 @[simp, grind .]
 def crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: String := "L") (table2_alias: String := "R") :
     TypedRelation (Fin.append types1 types2) :=
@@ -61,17 +66,6 @@ def crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1
              h.symm ▸ pair.2 i)
            i
       )
-  }
-
-@[simp, grind .]
-def join (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: String := "L") (table2_alias: String := "R")
-    (condition : TypedTuple (Fin.append types1 types2) → Bool) :
-    TypedRelation (Fin.append types1 types2) :=
-
-  let product := crossProduct r1 r2 table1_alias table2_alias
-  {
-    labels := product.labels,
-    rows   := product.rows.filter (fun t => condition t)
   }
 
 -- Helper Lemma: Injectivity of Tuple Combination
@@ -189,3 +183,71 @@ theorem mem_crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2)
         grind
       · simp_all only [Fin.addCases_right]
         grind
+
+
+/-
+## Join Operation
+This join operation is simply filtering of cross product for given condition
+-/
+
+@[simp, grind .]
+def join (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: String := "L") (table2_alias: String := "R")
+    (condition : TypedTuple (Fin.append types1 types2) → Bool) :
+    TypedRelation (Fin.append types1 types2) :=
+
+  let product := crossProduct r1 r2 table1_alias table2_alias
+  {
+    labels := product.labels,
+    rows   := product.rows.filter (fun t => condition t)
+  }
+
+-- Theorem: Join Empty Left
+-- ∅ ⋈ R = ∅
+theorem join_empty_left (r1 : TypedRelation types1) (r2 : TypedRelation types2)
+    (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String)
+    (h : r1.rows = ∅) :
+    (join r1 r2 a1 a2 condition).rows = ∅ := by
+  simp_all
+
+-- Theorem: Join Empty Right
+-- R ⋈ ∅ = ∅
+theorem join_empty_right (r1 : TypedRelation types1) (r2 : TypedRelation types2)
+    (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String)
+    (h : r2.rows = ∅) :
+    (join r1 r2 a1 a2 condition).rows = ∅ := by
+  simp_all
+
+-- Theorem: Join Size Upper Bound
+-- |R ⋈ S| <= |R| * |S|
+-- "A join can never create more rows than the cross product."
+theorem join_card_bound (r1 : TypedRelation types1) (r2 : TypedRelation types2)
+    (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String) :
+    (join r1 r2 a1 a2 condition).rows.card ≤ r1.rows.card * r2.rows.card := by
+  simp [join]
+  have h_filter : (Finset.filter (fun t => condition t) (crossProduct r1 r2 a1 a2).rows).card
+                  ≤ (crossProduct r1 r2 a1 a2).rows.card := by
+    apply Finset.card_filter_le
+  rw [crossProduct_card] at h_filter
+  exact h_filter
+
+-- Theorem: Filter Merge
+-- σ_p ( R ⋈ _c S ) = R ⋈ _{c && p} S
+-- "Filtering a join result is the same as adding the filter to the join condition."
+-- (This is useful: The database can check 'p' while joining, instead of doing a second pass)
+theorem join_filter_merge (r1 : TypedRelation types1) (r2 : TypedRelation types2)
+    (c : TypedTuple (Fin.append types1 types2) → Bool) -- Join Condition
+    (p : TypedTuple (Fin.append types1 types2) → Bool) -- Filter Condition
+    (a1 a2 : String) :
+
+    (join r1 r2 a1 a2 c).rows.filter (fun t => p t) =
+    (join r1 r2 a1 a2 (fun t => c t && p t)).rows := by
+  grind
+
+-- Theorem: Join is Subset of Cross Product
+-- (R ⋈ S) ⊆ (R x S)
+theorem join_subset_crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2)
+    (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String) :
+    (join r1 r2 a1 a2 condition).rows ⊆ (crossProduct r1 r2 a1 a2).rows := by
+  simp [join]
+
+end LeanDatabase
