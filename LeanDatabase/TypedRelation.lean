@@ -33,6 +33,10 @@ deriving Inhabited
   rows   : List (TypedTuple types)
 deriving Inhabited
 
+-- Definition of an Empty Relation (The "Zero" element)
+def emptyRel (l : Fin n → String) : TypedRelation types :=
+  { labels := l, rows := ∅ }
+
 -- Convert List-Relation to Finset-Relation
 @[simp, grind .]
 def toFinsetRelation (r : TypedListRelation types) : TypedRelation types :=
@@ -101,6 +105,30 @@ def minus (r1 r2 : TypedRelation types) : TypedRelation types :=
     labels := r1.labels,
     rows   := r1.rows \ r2.rows -- Finset Difference (sdiff)
   }
+
+-- RENAME operator: Changes labels, keeps data exactly the same.
+@[simp, grind]
+def rename (newLabels : Fin n → String) (rel : TypedRelation types) : TypedRelation types :=
+  {
+    labels := newLabels,
+    rows   := rel.rows
+  }
+
+-- Helper: Rename a specific column by index
+def renameColumn (idx : Fin n) (newName : String) (rel : TypedRelation types) : TypedRelation types :=
+  {
+    labels := Function.update rel.labels idx newName,
+    rows   := rel.rows
+  }
+
+-- Helper to prefix all labels in a relation, useful for cross product
+@[simp]
+def prefixLabels (prefixStr : String) (rel : TypedRelation types) : TypedRelation types :=
+  {
+    labels := fun i => prefixStr ++ "." ++ rel.labels i,
+    rows   := rel.rows
+  }
+
 
 /-! ## Theorems -/
 
