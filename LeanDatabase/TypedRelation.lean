@@ -75,12 +75,17 @@ def typedColumn {α : Type} [DecidableEq α]
 
 -- Restriction (uses Finset.filter)
 @[simp, grind]
-def restriction (condition : (i : Fin n) → types i → Bool) (rel : TypedRelation types) :
+def restriction (predicate : TypedTuple types → Bool) (rel : TypedRelation types) :
     TypedRelation types :=
   {
     labels := rel.labels,
-    rows   := rel.rows.filter (fun t => ∀ i, condition i (t i))
+    rows   := rel.rows.filter (fun t => predicate t)
   }
+
+-- Selection is same as restriction, but is also commonly used
+def selection (predicate : TypedTuple types → Bool) (rel : TypedRelation types) :
+    TypedRelation types :=
+  restriction predicate rel
 
 -- Union
 @[simp, grind]
@@ -152,11 +157,38 @@ theorem projection_card_le {m : Nat} (indices : Fin m → Fin n)
   apply Finset.card_image_le
 
 omit [∀ i, DecidableEq (types i)] in
+-- Theorem: Restriction Cardinality
+-- |σ(R)| ≤ |R|
+-- "Filtering rows can never increase the number of rows."
 theorem restriction_card_le
-    (condition : (i : Fin n) → types i → Bool) (rel : TypedRelation types) :
-    (restriction condition rel).rows.card ≤ rel.rows.card := by
+    (predicate : TypedTuple types → Bool) (rel : TypedRelation types) :
+    (restriction predicate rel).rows.card ≤ rel.rows.card := by
   simp [restriction]
-  -- Law: |filter p S| ≤ |S|
+  -- |filter p S| ≤ |S|
   apply Finset.card_filter_le
 
-end LeanDatabase
+
+/-
+### Formatting to print
+-/
+
+-- format a single tuple to: "[Val1, Val2, ...]"
+def formatTuple [∀ i, ToString (types i)] (t : TypedTuple types) : String :=
+  let parts := List.finRange n |>.map (fun i => toString (t i))
+  "[" ++ (String.intercalate ", " parts) ++ "]"
+
+-- Helper to format the whole table
+-- Note: We use 'unsafe' to convert the Set of rows into a List for printing
+unsafe def simpleFormat [∀ i, DecidableEq (types i)] [∀ i, ToString (types i)]
+    (rel : TypedRelation types) : String :=
+  let labelStr := "Labels: " ++ toString (List.ofFn rel.labels)
+
+  -- unsafeCast allows us to view the Set as a List just for printing
+  let rowList : List (TypedTuple types) := unsafeCast rel.rows.val
+  let rowStrs := rowList.map (fun r => "Row:    " ++ formatTuple r)
+
+  String.intercalate "\n" (labelStr :: rowStrs)
+
+unsafe instance [∀ i, DecidableEq (types i)] [∀ i, ToString (types i)] :
+    Repr (TypedRelation types) where
+  reprPrec rel _ := simpleFormat rel

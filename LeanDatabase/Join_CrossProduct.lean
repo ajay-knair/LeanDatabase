@@ -28,13 +28,27 @@ instance instDecidableEqAppend : ∀ i, DecidableEq (Fin.append types1 types2 i)
       h ▸ inferInstance)
     i
 
+@[simp]
+instance instToStringAppend {n m : Nat}
+    {types1 : Fin n → Type} [∀ i, ToString (types1 i)]
+    {types2 : Fin m → Type} [∀ i, ToString (types2 i)] :
+    ∀ i, ToString (Fin.append types1 types2 i) := fun i =>
+  Fin.addCases
+    (fun i =>
+      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp
+      h ▸ inferInstance)
+    (fun i =>
+      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp
+      h ▸ inferInstance)
+    i
+
 /-
 ## Cross Product
 Note: we rename labels if they are same bases on given aliases prefix
 -/
 
 @[simp, grind .]
-def crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: String := "L") (table2_alias: String := "R") :
+def crossProductRel (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: String := "L") (table2_alias: String := "R") :
     TypedRelation (Fin.append types1 types2) :=
 
   -- Check if labels are not same, then prefixLabel them
@@ -100,8 +114,8 @@ theorem combine_tuples_injective :
 -- "The size of the product is the product of the sizes"
 theorem crossProduct_card (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (a1 a2 : String) :
-    (crossProduct r1 r2 a1 a2).rows.card = r1.rows.card * r2.rows.card := by
-  simp_all only [crossProduct, List.contains_eq_mem, List.mem_ofFn, List.any_eq_true,
+    (crossProductRel r1 r2 a1 a2).rows.card = r1.rows.card * r2.rows.card := by
+  simp_all only [crossProductRel, List.contains_eq_mem, List.mem_ofFn, List.any_eq_true,
     decide_eq_true_eq, exists_exists_eq_and, prefixLabels, instDecidableEqAppend]
   rw [Finset.card_image_of_injective]
   · simp only [Finset.card_product]
@@ -113,16 +127,16 @@ theorem crossProduct_card (r1 : TypedRelation types1) (r2 : TypedRelation types2
 -- "Crossing with an empty table yields an empty table"
 theorem crossProduct_empty_left (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (a1 a2 : String) (h : r1.rows = ∅) :
-    (crossProduct r1 r2 a1 a2).rows = ∅ := by
-  simp [crossProduct, h]
+    (crossProductRel r1 r2 a1 a2).rows = ∅ := by
+  simp [crossProductRel, h]
 
 -- Theorem: Zero Propagation (Right)
 -- R1 × ∅ = ∅
 -- "Crossing with an empty table yields an empty table"
 theorem crossProduct_empty_right (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (a1 a2 : String) (h : r2.rows = ∅) :
-    (crossProduct r1 r2 a1 a2).rows = ∅ := by
-  simp [crossProduct, h]
+    (crossProductRel r1 r2 a1 a2).rows = ∅ := by
+  simp [crossProductRel, h]
 
 
 -- Helper: Split Tuple
@@ -144,10 +158,10 @@ def splitTuple (t : TypedTuple (Fin.append types1 types2)) :
 -- "A row is in the product if and only if its parts are in the source tables"
 theorem mem_crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (a1 a2 : String) (t : TypedTuple (Fin.append types1 types2)) :
-    t ∈ (crossProduct r1 r2 a1 a2).rows ↔
+    t ∈ (crossProductRel r1 r2 a1 a2).rows ↔
     (splitTuple t).1 ∈ r1.rows ∧ (splitTuple t).2 ∈ r2.rows := by
 
-  simp only [crossProduct, Finset.mem_image]
+  simp only [crossProductRel, Finset.mem_image]
   constructor
   -- Forward (If t is in result, its parts are in R1 and R2)
   · intro h
@@ -195,7 +209,7 @@ def join (r1 : TypedRelation types1) (r2 : TypedRelation types2) (table1_alias: 
     (condition : TypedTuple (Fin.append types1 types2) → Bool) :
     TypedRelation (Fin.append types1 types2) :=
 
-  let product := crossProduct r1 r2 table1_alias table2_alias
+  let product := crossProductRel r1 r2 table1_alias table2_alias
   {
     labels := product.labels,
     rows   := product.rows.filter (fun t => condition t)
@@ -224,8 +238,8 @@ theorem join_card_bound (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String) :
     (join r1 r2 a1 a2 condition).rows.card ≤ r1.rows.card * r2.rows.card := by
   simp [join]
-  have h_filter : (Finset.filter (fun t => condition t) (crossProduct r1 r2 a1 a2).rows).card
-                  ≤ (crossProduct r1 r2 a1 a2).rows.card := by
+  have h_filter : (Finset.filter (fun t => condition t) (crossProductRel r1 r2 a1 a2).rows).card
+                  ≤ (crossProductRel r1 r2 a1 a2).rows.card := by
     apply Finset.card_filter_le
   rw [crossProduct_card] at h_filter
   exact h_filter
@@ -247,7 +261,7 @@ theorem join_filter_merge (r1 : TypedRelation types1) (r2 : TypedRelation types2
 -- (R ⋈ S) ⊆ (R x S)
 theorem join_subset_crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2)
     (condition : TypedTuple (Fin.append types1 types2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 condition).rows ⊆ (crossProduct r1 r2 a1 a2).rows := by
+    (join r1 r2 a1 a2 condition).rows ⊆ (crossProductRel r1 r2 a1 a2).rows := by
   simp [join]
 
 end LeanDatabase
