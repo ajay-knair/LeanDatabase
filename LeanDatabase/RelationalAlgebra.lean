@@ -161,6 +161,15 @@ theorem restriction_diff_distrib (p : TypedTuple types → Bool) (r1 r2 : TypedR
   ext x
   grind
 
+-- Theorem: Difference of Restrictions
+-- σ_P(R) - σ_Q(R) = σ_{P ∧ ¬Q}(R)
+-- "Subtracting a filtered set from another filtered set (of the same source)
+theorem restriction_diff_conj_restriction (p q : TypedTuple types → Bool) (r : TypedRelation types) :
+    minus (restriction p r) (restriction q r) = restriction (fun t => p t && !q t) r := by
+  simp_all only [minus, restriction, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    TypedRelation.mk.injEq, true_and]
+  grind
+
 /-! ### Identity and Zero Laws -/
 
 -- Theorem: Selection on Empty is Empty
