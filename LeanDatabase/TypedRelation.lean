@@ -1,5 +1,19 @@
 import Mathlib
 
+namespace Finset
+
+-- Maybe Finset.sort is equivalent to this
+def toListSorted [LinearOrder α] (s : Finset α) : List α :=
+  if h : s.Nonempty then
+    let m := s.min' h
+    m :: toListSorted (s.erase m)
+  else []
+termination_by s.card
+decreasing_by
+  apply Finset.card_erase_lt_of_mem
+  apply Finset.min'_mem
+end Finset
+
 namespace LeanDatabase
 
 variable {n : Nat}
@@ -13,13 +27,131 @@ so this will help us in future.
 -/
 
 -- Finsets require Decidable Equality to handle deduplication
-variable {types : Fin n → Type} [∀ i, DecidableEq (types i)]
-
+variable {types : Fin n → Type} [∀ i, DecidableEq (types i)][ ∀ i, LinearOrder (types i)]
 abbrev TypedTuple (types : Fin n → Type) := (i : Fin n) → types i
 
 -- We ensure tuples can be compared for equality
 instance : DecidableEq (TypedTuple types) :=
   inferInstanceAs (DecidableEq ((i : Fin n) → types i))
+
+-- Pi.Lex.linearOrder is noncomputable, hence the manual approach to Lexicographic ordering
+-- noncomputable instance [inst : ∀ i, LinearOrder (types i)] : LinearOrder (TypedTuple types) :=
+--   @Pi.Lex.linearOrder (Fin n) types _ _ inst
+
+variable (r s t : TypedTuple types)
+
+
+omit [(i : Fin n) → DecidableEq (types i)] [(i : Fin n) → LinearOrder (types i)] in
+theorem eq_iff : r = s ↔ ∀ i, r i = s i := by grind only
+
+@[simp, grind .]
+def lt : Prop := ∃ i : Fin n, (r i < s i) ∧ (∀ j : Fin n, j < i → r j = s j)
+instance : LT (TypedTuple types) := ⟨lt⟩
+instance : Decidable (lt r s) := by unfold lt; infer_instance
+instance : Decidable (r < s) := inferInstanceAs (Decidable (lt r s))
+instance : DecidableLT (TypedTuple types) := by infer_instance
+
+-- @[simp, grind =]
+omit [(i : Fin n) → DecidableEq (types i)] in
+theorem lt_iff : r < s ↔ ∃ i : Fin n, (r i < s i) ∧ (∀ j : Fin n, j < i → r j = s j) := by rfl
+
+@[simp, grind .]
+def le : Prop := r < s ∨ r = s
+instance : LE (TypedTuple types) := ⟨le⟩
+instance : Decidable (le r s) := by unfold le; infer_instance
+instance : Decidable (r ≤ s) := inferInstanceAs (Decidable (le r s))
+instance : DecidableLE (TypedTuple types) := by infer_instance
+
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+@[simp, grind =] theorem le_iff : r ≤ s ↔ r < s ∨ r = s := by rfl
+
+def min := if r ≤ s then r else s
+def max := if r ≤ s then s else r
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+@[simp, grind .] theorem le_refl : r ≤ r := by grind only [le_iff]
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+theorem lt_trans : r < s → s < t → r < t := by
+  simp only [lt_iff]; intro ⟨i₁, h₁, h_eq₁⟩ ⟨i₂, h₂, h_eq₂⟩
+  rcases lt_trichotomy i₁ i₂ with h | h | h
+  · use i₁; constructor
+    · specialize h_eq₂ i₁ h; rw [← h_eq₂]; exact h₁
+    · grind only
+  · use i₁; rw [← h] at h₂ h_eq₂; constructor
+    · exact _root_.lt_trans h₁ h₂
+    · grind only
+  · grind only
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+@[simp, grind .] theorem le_trans : r ≤ s → s ≤ t → r ≤ t := by
+  simp only [le_iff]; intro h₁ h₂
+  rcases h₁ with h₁ | h₁ <;> rcases h₂ with h₂ | h₂ <;> grind only [lt_trans]
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+theorem not_gt_of_lt : r < s → ¬s < r := by
+  simp only [lt_iff, not_exists, not_and, not_forall]
+  intro ⟨j, hj, h_eq⟩ i hi --; obtain ⟨j, hj, h_eq⟩ := h
+  have : j < i := by
+          by_contra h
+          rcases (not_lt_iff_eq_or_lt.mp h) with h | h
+          · rw [h] at hj; grind only
+          · specialize h_eq i h; grind only
+  use j, this; grind only
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+theorem not_eq_of_lt : r < s → ¬ r = s := by grind only [lt_iff]
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+@[simp, grind .] theorem lt_iff_le_not_ge : r < s ↔ r ≤ s ∧ ¬s ≤ r := by
+  constructor
+  · intro h; constructor
+    · left; exact h
+    · rw [le_iff, not_or]
+      constructor <;> grind only [not_gt_of_lt, not_eq_of_lt]
+  · intro h; simp only [le_iff, not_or] at h
+    grind only
+
+omit [(i : Fin n) → DecidableEq (types i)] in
+@[simp, grind .] theorem le_antisymm : r ≤ s → s ≤ r → r = s := by
+  simp only [le_iff]; intro h₁ h₂
+  rcases h₁ with h₁ | h₁ <;> rcases h₂ with h₂ | h₂ <;> grind only [lt_iff_le_not_ge, le_iff]
+
+omit [(i : Fin n) → LinearOrder (types i)] in
+@[simp] theorem exists_first_diff (h : ¬ r = s) : ∃ i, ¬ r i = s i ∧ ∀ j < i, r j = s j := by
+  let p : Fin n → Bool := fun i ↦ r i ≠ s i
+  match h_find : Fin.find? p with
+  | none =>
+    simp only [ne_eq, decide_not, Fin.findSome?_eq_none_iff, Option.guard_eq_none_iff,
+      Bool.not_eq_eq_eq_not, Bool.not_false, decide_eq_true_eq, p, ← eq_iff] at h_find
+    exfalso; grind only
+  | some i =>
+    simp only [ne_eq, decide_not, Fin.findSome?_eq_some_iff, Option.guard_eq_some_iff,
+      Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not, Option.guard_eq_none_iff,
+      Bool.not_false, decide_eq_true_eq, ↓existsAndEq, true_and, p] at h_find
+    use i
+
+@[simp, grind .] theorem le_total : r ≤ s ∨ s ≤ r := by
+  if h : r = s then grind only [le_iff]
+  else
+    simp only [le_iff, h, or_false]; rw [eq_comm] at h
+    simp only [h, or_false]; rw [eq_comm] at h
+    obtain ⟨i, hi, hi'⟩ := exists_first_diff _ _ h
+    rcases Ne.lt_or_gt hi <;> grind only [lt_iff]
+
+instance  [inst : ∀ i, LinearOrder (types i)] : LinearOrder (TypedTuple types) where
+  le_refl := le_refl
+  le_trans := le_trans
+  le_antisymm := le_antisymm
+  le_total := le_total
+  toDecidableLE := by infer_instance
+  lt_iff_le_not_ge := lt_iff_le_not_ge
+  min := fun a b => if a ≤ b then a else b
+  max := fun a b => if a ≤ b then b else a
+  min_def := by intros; rfl
+  max_def := by intros; rfl
+
 
 /-! ## Definitions -/
 
@@ -43,6 +175,12 @@ def toFinsetRelation (r : TypedListRelation types) : TypedRelation types :=
   {
     labels := r.labels,
     rows   := r.rows.toFinset
+  }
+
+def toListRelation (r : TypedRelation types) : TypedListRelation types :=
+  {
+    labels := r.labels
+    rows   := r.rows.toListSorted
   }
 
 theorem permutation_implies_finset_equality
