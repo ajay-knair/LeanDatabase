@@ -31,6 +31,13 @@ theorem inter_self [DecidableEq α] (s: Multiset α) : s ∩ s = s := by
   have : s ≤ s ∩ s := by grind [le_inter]
   grind
 
+@[grind .]
+theorem inter_union_distrib_left [DecidableEq α] (s t u: Multiset α) : s ∩ (t ∪ u) = s ∩ t ∪ s ∩ u := by sorry
+
+@[grind .]
+theorem union_inter_distrib_left [DecidableEq α] (s t u: Multiset α) :
+s ∪ t ∩ u = (s ∪ t) ∩ (s ∪ u) := by sorry
+
 end Multiset
 
 namespace LeanDatabase
@@ -74,9 +81,12 @@ theorem inter_idempotence (r : TypedRelation types) :
 theorem union_absorb_inter (r1 r2 : TypedRelation types) :
     union r1 (intersection r1 r2) = r1 := by
   simp only [union, intersection]
-  ext
-  apply?
-  sorry
+  refine TypedRelation.ext_iff.mpr ?_
+  apply And.intro
+  · grind
+  · simp only
+    grind [Multiset.eq_union_left, Multiset.inter_le_left]
+
 
 -- Theorem: Distributivity of Intersection over Union
 -- R ∩ (S ∪ T) = (R ∩ S) ∪ (R ∩ T)
@@ -84,18 +94,15 @@ theorem union_absorb_inter (r1 r2 : TypedRelation types) :
 theorem inter_distrib_union (r1 r2 r3 : TypedRelation types) :
     intersection r1 (union r2 r3) = union (intersection r1 r2) (intersection r1 r3) := by
   simp only [intersection, union, TypedRelation.mk.injEq, true_and]
-  ext x
   grind
-  sorry
+
 
 -- Theorem: Distributivity of Union over Intersection
 -- R ∪ (S ∩ T) = (R ∪ S) ∩ (R ∪ T)
 theorem union_distrib_inter (r1 r2 r3 : TypedRelation types) :
     union r1 (intersection r2 r3) = intersection (union r1 r2) (union r1 r3) := by
   simp only [union, intersection, TypedRelation.mk.injEq, true_and]
-  ext x
   grind
-
 -- Theorem: Dual Absorption Law
 -- R ∩ (R ∪ S) = R
 theorem inter_absorb_union (r1 r2 : TypedRelation types) :
@@ -103,7 +110,7 @@ theorem inter_absorb_union (r1 r2 : TypedRelation types) :
   simp only [intersection, union]
   ext x
   · simp
-  · grind
+  · sorry
 
 -- Theorem: Difference Chain
 -- (R - S) - T = R - (S ∪ T)

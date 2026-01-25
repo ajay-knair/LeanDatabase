@@ -316,7 +316,7 @@ def intersection' (r1 r2 : TypedListRelation types) : TypedListRelation types :=
 def minus (r1 r2 : TypedRelation types) : TypedRelation types :=
   {
     labels := r1.labels,
-    rows   := Multiset.sub r1.rows r2.rows -- Finset Difference (sdiff)
+    rows   := Multiset.sub r1.rows r2.rows -- Multiset Difference (sdiff)
   }
 
 /-
