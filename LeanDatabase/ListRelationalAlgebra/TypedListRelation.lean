@@ -12,16 +12,22 @@ variable {types : Fin n → Type} [∀ i, DecidableEq (types i)][ ∀ i, LinearO
   rows   : List (TypedTuple types)
 deriving Inhabited
 
+-- Define the Equivalence Logic
+@[simp, grind .]
+def equivalent (r1 r2 : TypedListRelation types) : Prop :=
+  r1.labels = r2.labels ∧ List.Perm r1.rows r2.rows
+
+infix:50 " ~ " => equivalent
+
 instance : Setoid (TypedListRelation types) where
-  r a b := a.labels = b.labels ∧ List.Perm a.rows b.rows
+  r := equivalent
   iseqv := {
     refl  := fun _ => ⟨rfl, List.Perm.refl _⟩
-    symm  := fun ⟨l, p⟩ => ⟨l.symm, List.Perm.symm p⟩
-    trans := fun ⟨l1, p1⟩ ⟨l2, p2⟩ => ⟨l1.trans l2, List.Perm.trans p1 p2⟩
+    symm  := fun ⟨hL, hR⟩ => ⟨hL.symm, List.Perm.symm hR⟩
+    trans := fun ⟨hL1, hR1⟩ ⟨hL2, hR2⟩ => ⟨hL1.trans hL2, List.Perm.trans hR1 hR2⟩
   }
 
-def QuotRelation (types : Fin n → Type) := Quotient (instSetoidTypedListRelation (types := types))
-
+@[simp, grind .]
 def emptyListRel (l : Fin n → String) : TypedListRelation types :=
   { labels := l, rows := [] }
 
@@ -47,8 +53,6 @@ theorem permutation_implies_finset_equality
     toFinsetRelation l1 = toFinsetRelation l2 := by
   intro h_labels h_perm
   grind only [toFinsetRelation, List.toFinset_eq_of_perm]
-  -- simp_all [toFinsetRelation]
-  -- exact List.toFinset_eq_of_perm l1.rows l2.rows h_perm
 
 /-! ## Relational Algebra Operations on Lists -/
 
@@ -80,7 +84,7 @@ def union (r1 r2 : TypedListRelation types) : TypedListRelation types :=
 def intersection (r1 r2 : TypedListRelation types) : TypedListRelation types :=
   {
     labels := r1.labels,
-    rows   := r1.rows.filter (fun t => r2.rows.contains t) -- O (|r1|*|r2|)
+    rows := r1.rows.bagInter r2.rows -- O (|r1|*|r2|)
   }
 
 -- Minus / Difference
@@ -88,7 +92,7 @@ def intersection (r1 r2 : TypedListRelation types) : TypedListRelation types :=
 def minus (r1 r2 : TypedListRelation types) : TypedListRelation types :=
   {
     labels := r1.labels,
-    rows   := r1.rows.filter (fun t => ¬ r2.rows.contains t) -- O (|r1|*|r2|)
+    rows   := r1.rows.diff r2.rows
   }
 
 
@@ -114,7 +118,6 @@ def prefixLabels (prefixStr : String) (rel : TypedListRelation types) : TypedLis
     labels := fun i => prefixStr ++ "." ++ rel.labels i,
     rows   := rel.rows
   }
-
 
 /-! ## Theorems -/
 

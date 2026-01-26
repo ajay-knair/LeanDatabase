@@ -242,7 +242,6 @@ def prefixLabels (prefixStr : String) (rel : TypedRelation types) : TypedRelatio
     rows   := rel.rows
   }
 
-
 /-! ## Theorems -/
 
 omit [(i : Fin n) → LinearOrder (types i)] in
