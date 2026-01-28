@@ -20,11 +20,11 @@ instance instDecidableEqAppend : ∀ i, DecidableEq (Fin.append types1 types2 i)
   Fin.addCases
     (fun i =>
       -- Left Case: Fin.append reduces to types1
-      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := rfl
+      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp [Fin.append, Fin.addCases]
       h ▸ inferInstance)
     (fun i =>
       -- Right Case: Fin.append reduces to types2
-      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := rfl
+      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp [Fin.append, Fin.addCases]
       h ▸ inferInstance)
     i
 
@@ -35,10 +35,10 @@ instance instToStringAppend {n m : Nat}
     ∀ i, ToString (Fin.append types1 types2 i) := fun i =>
   Fin.addCases
     (fun i =>
-      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := rfl
+      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp [Fin.append, Fin.addCases]
       h ▸ inferInstance)
     (fun i =>
-      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := rfl
+      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp [Fin.append, Fin.addCases]
       h ▸ inferInstance)
     i
 
@@ -70,12 +70,12 @@ def crossProductRel (r1 : TypedRelation types1) (r2 : TypedRelation types2) (tab
          Fin.addCases
            (fun i =>
              -- PROOF 1: The complex type equals the simple type
-             have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := rfl
+             have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp [Fin.append, Fin.addCases]
              -- REWRITE: Cast 'pair.1 i' (simple) to the complex type
              h.symm ▸ pair.1 i)
            (fun i =>
              -- PROOF 2: The complex type equals the simple type
-             have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := rfl
+             have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp [Fin.append, Fin.addCases]
              -- REWRITE: Cast 'pair.2 i' (simple) to the complex type
              h.symm ▸ pair.2 i)
            i
@@ -91,10 +91,10 @@ theorem combine_tuples_injective :
        fun i =>
          (Fin.addCases
            (fun i =>
-             have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := rfl
+             have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp [Fin.append, Fin.addCases]
              h.symm ▸ pair.1 i)
            (fun i =>
-             have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := rfl
+             have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp [Fin.append, Fin.addCases]
              h.symm ▸ pair.2 i)
            i : Fin.append types1 types2 i)
        ) := by
@@ -148,10 +148,10 @@ def splitTuple (t : TypedTuple (Fin.append types1 types2)) :
     TypedTuple types1 × TypedTuple types2 :=
   (
     fun i =>
-      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := rfl
+      have h : Fin.append types1 types2 (Fin.castAdd m i) = types1 i := by simp [Fin.append, Fin.addCases]
       h ▸ t (Fin.castAdd m i),
     fun i =>
-      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := rfl
+      have h : Fin.append types1 types2 (Fin.natAdd n i) = types2 i := by simp [Fin.append, Fin.addCases]
       h ▸ t (Fin.natAdd n i)
   )
 
@@ -182,18 +182,12 @@ theorem mem_crossProduct (r1 : TypedRelation types1) (r2 : TypedRelation types2)
       grind
 
   -- Backward (If parts are in R1 and R2, their combination is t)
-  · intro h
-    rcases h with ⟨h1, h2⟩
-    simp only [Finset.mem_product]
-
+  · simp_all only [splitTuple, Finset.mem_product, Prod.exists]
+    intro h
     use (splitTuple t).1, (splitTuple t).2
-
     constructor
-    -- 1. Prove the witness is in the source tables (Easy)
-    · grind
-    -- 2. Prove combine(split(t)) = t
+    · assumption
     · ext i
-      simp_all
       induction i using Fin.addCases
       · simp_all only [Fin.addCases_left]
         grind
