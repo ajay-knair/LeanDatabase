@@ -103,6 +103,7 @@ theorem diff_self (r : TypedRelation types) :
 
 -- Theorem: Selection Distributes over Union
 -- σ_p(R ∪ S) = σ_p(R) ∪ σ_p(S)
+@[grind =_]
 theorem restriction_union_distrib (p : TypedTuple types → Bool)
     (r1 r2 : TypedRelation types) :
     restriction p (union r1 r2) = union (restriction p r1) (restriction p r2) := by
@@ -144,6 +145,7 @@ theorem restriction_idempotence (p : TypedTuple types → Bool) (r : TypedRelati
 -- σ_{p1}(σ_{p2}(R)) = σ_{p1 ∧ p2}(R)
 -- "Applying two filters sequentially is the same as applying them combined with AND."
 omit [∀ i, DecidableEq (types i)] in
+@[grind =]
 theorem restriction_cascade (p1 p2 : (TypedTuple types → Bool)) (r : TypedRelation types) :
     restriction p1 (restriction p2 r) =
     restriction (fun x => p1 x && p2 x) r := by
@@ -164,6 +166,7 @@ theorem restriction_diff_distrib (p : TypedTuple types → Bool) (r1 r2 : TypedR
 -- Theorem: Difference of Restrictions
 -- σ_P(R) - σ_Q(R) = σ_{P ∧ ¬Q}(R)
 -- "Subtracting a filtered set from another filtered set (of the same source)
+@[grind =]
 theorem restriction_diff_conj_restriction (p q : TypedTuple types → Bool) (r : TypedRelation types) :
     minus (restriction p r) (restriction q r) = restriction (fun t => p t && !q t) r := by
   simp_all only [minus, restriction, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
