@@ -1,17 +1,21 @@
 import LeanDatabase.TypedRelation
+open Lean
 
 namespace LeanDatabase
 
 /- ## SQL Column Def-/
 
-structure ColumnDef where
+structure BaseColumnDef where
   name : String
-  typestr: String
+  sqltype: String
+deriving Repr, Inhabited, BEq, ToJson, FromJson
+
+structure ColumnDef extends BaseColumnDef where
   isPrimaryKey : Bool := false
   isNullable : Bool := true
   isUnique : Bool := false
   defaultValue : Option String := none
-deriving Repr, Inhabited, BEq
+deriving Repr, Inhabited, BEq, ToJson, FromJson
 
 /- ## Table Schema built upon TypedRelation -/
 
@@ -85,7 +89,7 @@ deriving Repr, BEq
 def SQLColumn.toColumnDef (col : SQLColumn) : ColumnDef :=
   {
     name := col.name,
-    typestr := s!"{col.sqlType}",
+    sqltype := s!"{col.sqlType}",
     isPrimaryKey := col.constraints.primaryKey,
     isNullable := !col.constraints.notNull,
     isUnique := col.constraints.unique,

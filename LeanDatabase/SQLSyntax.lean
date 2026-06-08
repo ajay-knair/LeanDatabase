@@ -25,19 +25,19 @@ open Lean Elab Command Term Meta
 @[command_elab createTableCmd]
 def elabCreateTableCmd : CommandElab := fun stx => do
   match stx with
-  | `(command| CREATE TABLE $tname:ident ($[$idents:ident $data_colType:data_type],*) ) =>
+  | `(command| CREATE TABLE $tname:ident ($[$idents:ident $data_types:data_type],*) ) =>
 
     let colNames := idents.map (fun id => quote id.getId.toString)
     let n := quote colNames.size
 
-    let colTypeList : Array (TSyntax `term) ← data_colType.mapM fun
+    let typesList : Array (TSyntax `term) ← data_types.mapM fun
       | `(data_type| INT) => `(ℤ)
       | `(data_type| STRING) => `(String)
       | `(data_type| BOOL) => `(Bool)
       | `(data_type| VARCHAR($_)) => `(String)
       | _ => `(String)
 
-    let alts_colType ← colTypeList.mapIdxM fun idx t => do
+    let alts_types ← typesList.mapIdxM fun idx t => do
       let idxLit := Syntax.mkNumLit (toString idx)
       `(matchAltExpr| | $idxLit => $t)
 
@@ -46,22 +46,22 @@ def elabCreateTableCmd : CommandElab := fun stx => do
       `(matchAltExpr| | $idxLit => $l)
 
     let labels ← `(fun (x: Fin $n) => match x with $alts_labels:matchAlt*)
-    let alts_tc ← colTypeList.mapIdxM fun idx _ => do
+    let alts_tc ← typesList.mapIdxM fun idx _ => do
       let idxLit := Syntax.mkNumLit (toString idx)
       `(matchAltExpr| | $idxLit => inferInstance)
 
-    let colTypeDefName := Lean.mkIdent (Name.mkSimple s!"{tname.getId}_colType")
-    let colTypeDefCmd ← `(abbrev $colTypeDefName : Fin $n → Type := fun x => match x with $alts_colType:matchAlt*)
+    let typesDefName := Lean.mkIdent (Name.mkSimple s!"{tname.getId}_types")
+    let typesDefCmd ← `(abbrev $typesDefName : Fin $n → Type := fun x => match x with $alts_types:matchAlt*)
 
-    let valueStx ← `(@LeanDatabase.TypedRelation.mk ($n) ($colTypeDefName) ($labels) (∅))
+    let valueStx ← `(@LeanDatabase.TypedRelation.mk ($n) ($typesDefName) _ ($labels) (∅))
 
     let cmd ← `(def $tname := $valueStx)
-    let instDecCmd ← `(instance : (i : Fin $n) → DecidableEq ($colTypeDefName i) :=
+    let instDecCmd ← `(instance : (i : Fin $n) → DecidableEq ($typesDefName i) :=
       fun x => match x with $alts_tc:matchAlt*)
-    let instOrdCmd ← `(instance : (i : Fin $n) → LinearOrder ($colTypeDefName i) :=
+    let instOrdCmd ← `(instance : (i : Fin $n) → LinearOrder ($typesDefName i) :=
       fun x => match x with $alts_tc:matchAlt*)
 
-    elabCommand colTypeDefCmd
+    elabCommand typesDefCmd
     elabCommand cmd
     elabCommand instDecCmd
     elabCommand instOrdCmd
@@ -80,9 +80,9 @@ def elabSelectCmd : CommandElab := fun stx =>
       logInfo s!"Table Type: {←ppExpr <| tableType}"
 
       let args := tableType.getAppArgs
-      let colType := args.getD 1 (mkStrLit "")
-      logInfo s!"colType:{← ppExpr <| colType}"
-      let colTypeArrExpr ← mkAppM ``Array.ofFn #[colType]
+      let types := args.getD 1 (mkStrLit "")
+      logInfo s!"types:{← ppExpr <| types}"
+      let typesArrExpr ← mkAppM ``Array.ofFn #[types]
 
       let labels ← mkProjection tableExpr `labels
       logInfo s!"Labels:{← ppExpr <| (← whnf labels)}"
@@ -112,7 +112,7 @@ def elabSelectCmd : CommandElab := fun stx =>
       logInfo s!"indexArr:{indexArr}"
       let labelsNewArr ← mkListLit (mkConst ``String) (indexArr.map (fun n => mkStrLit labelsArr[n]!)).toList
       logInfo s!"{← ppExpr <| labelsNewArr}"
-      --let colTypeNewArr ← mkListLit (mkConst ``String) (indexArr.map (fun n => mkStrLit colTypeArr[n]!)).toList
+      --let typesNewArr ← mkListLit (mkConst ``String) (indexArr.map (fun n => mkStrLit typesArr[n]!)).toList
       let finType ← mkAppM ``Fin #[nExpr]
 
       let labelsNewExpr ← withLocalDecl `i .default finType fun i => do
@@ -120,10 +120,10 @@ def elabSelectCmd : CommandElab := fun stx =>
         mkLambdaFVars #[i] body
       logInfo s!"LambdaExpr:{← ppExpr <| labelsNewExpr}"
 
-      --let colTypeNewExpr ← withLocalDecl `i .default finType fun i => do
-        --let body ← mkAppM ``List.get #[colTypeNewArr, i]
+      --let typesNewExpr ← withLocalDecl `i .default finType fun i => do
+        --let body ← mkAppM ``List.get #[typesNewArr, i]
         --mkLambdaFVars #[i] body
-      --logInfo s!"LambdaExpr:{← ppExpr <| colTypeNewExpr}"
+      --logInfo s!"LambdaExpr:{← ppExpr <| typesNewExpr}"
 
       match tableType.getAppFn with
       | Expr.const structName .. =>
