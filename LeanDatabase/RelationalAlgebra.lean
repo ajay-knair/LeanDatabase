@@ -111,6 +111,45 @@ theorem restriction_union_distrib (p : TypedTuple colType → Bool)
   simp only [restriction, union, TypedRelation.mk.injEq, true_and]
   grind
 
+/-! ### Boolean predicate combinators
+
+Selection predicates are `Bool`-valued functions. To state selection laws over compound
+predicates (`OR`, `AND`, `NOT`) as `grind`-usable rewrites we wrap the combinators as named
+functions: this keeps the lemma left-hand sides first-order (`restriction (pOr p q) r`) and
+hence e-matchable, instead of the higher-order `restriction (fun t => p t || q t) r` which
+`grind` cannot pattern on. They are intentionally NOT `@[simp]`, so they survive long enough
+for the rewrites below to fire. -/
+
+/-- `p OR q` as a predicate. -/
+def pOr (p q : TypedTuple colType → Bool) : TypedTuple colType → Bool := fun t => p t || q t
+
+/-- `p AND q` as a predicate. -/
+def pAnd (p q : TypedTuple colType → Bool) : TypedTuple colType → Bool := fun t => p t && q t
+
+/-- `NOT p` as a predicate. -/
+def pNot (p : TypedTuple colType → Bool) : TypedTuple colType → Bool := fun t => !p t
+
+-- Theorem: Selection over a disjunctive predicate is a Union of selections
+-- σ_{p ∨ q}(R) = σ_p(R) ∪ σ_q(R)
+-- "A WHERE with an OR is the UNION of the two single-condition selections."
+@[grind =]
+theorem restriction_pOr (p q : TypedTuple colType → Bool) (r : TypedRelation colType) :
+    restriction (pOr p q) r = union (restriction p r) (restriction q r) := by
+  simp only [pOr, restriction, union, TypedRelation.mk.injEq, true_and]
+  ext x
+  grind
+
+-- Theorem: a Union of selections with a disjoint second branch collapses to σ_{p ∨ q}
+-- σ_p(R) ∪ σ_{q ∧ ¬p}(R) = σ_{p ∨ q}(R)
+-- "Making the second UNION ALL branch disjoint (q AND NOT p) still yields the OR."
+@[grind =]
+theorem union_restriction_disjoint (p q : TypedTuple colType → Bool)
+    (r : TypedRelation colType) :
+    union (restriction p r) (restriction (pAnd q (pNot p)) r) = restriction (pOr p q) r := by
+  simp only [pAnd, pNot, pOr, restriction, union, TypedRelation.mk.injEq, true_and]
+  ext x
+  grind
+
 -- Theorem: Selection Distributes over Intersection
 -- σ_p(R ∩ S) = σ_p(R) ∩ σ_p(S)
 theorem restriction_inter_distrib (p : TypedTuple colType → Bool)

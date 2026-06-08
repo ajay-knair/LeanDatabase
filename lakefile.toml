@@ -1,7 +1,7 @@
 name = "LeanDatabase"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["LeanDatabase"]
+defaultTargets = ["LeanDatabase", "Examples"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -13,3 +13,7 @@ rev = "v4.30.0"
 
 [[lean_lib]]
 name = "LeanDatabase"
+
+[[lean_lib]]
+name = "Examples"
+globs = ["Examples.+"]
