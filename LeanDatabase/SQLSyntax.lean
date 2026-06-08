@@ -53,7 +53,7 @@ def elabCreateTableCmd : CommandElab := fun stx => do
     let typesDefName := Lean.mkIdent (Name.mkSimple s!"{tname.getId}_types")
     let typesDefCmd ← `(abbrev $typesDefName : Fin $n → Type := fun x => match x with $alts_types:matchAlt*)
 
-    let valueStx ← `(@LeanDatabase.TypedRelation.mk ($n) ($typesDefName) _ ($labels) (∅))
+    let valueStx ← `(@LeanDatabase.TypedRelation.mk ($n) ($typesDefName) ($labels) (∅))
 
     let cmd ← `(def $tname := $valueStx)
     let instDecCmd ← `(instance : (i : Fin $n) → DecidableEq ($typesDefName i) :=
