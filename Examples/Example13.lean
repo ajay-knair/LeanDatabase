@@ -1,15 +1,16 @@
 import LeanDatabase.GrindToolbox
-open LeanDatabase LeanDatabase.Aggregation
+open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
-# Example 13
+# Example 13 — toolbox demo: equivalences that close "for free"
 
-Multiple simple relational-algebra identities, plus two aggregate-over-`UNION ALL` identities.
+Each equivalence below needs a lemma that isn't specific to the example — they live in
+`LeanDatabase.GrindToolbox` (set-algebra rewrites) and `LeanDatabase.TypedAggregation`
+(aggregation/coalesce). Importing the toolbox lets every query equivalence here close with a
+bare `grind +locals`, on the `TypedRelation` algebra.
 -/
 
 namespace Example13
-
-/-! ## Set-semantics rewrites (`TypedRelation`) -/
 
 variable {n : Nat} {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
 set_option linter.unusedSectionVars false
@@ -34,20 +35,10 @@ theorem union_absorb (a b : TypedRelation colType) :
     union a (intersection a b) = a := by
   grind +locals
 
-/-! ## Bag-semantics aggregate over `UNION ALL` -/
-
-structure Order where
-  amount : Int
-deriving DecidableEq, Repr
-
-/-- `SUM(amount)` over a `UNION ALL` = sum of the parts. -/
-theorem sum_unionAll (a b : List Order) :
-    bagSum (·.amount) (a ++ b) = bagSum (·.amount) a + bagSum (·.amount) b := by
-  grind +locals
-
-/-- `COUNT(*)` over a `UNION ALL` = sum of the parts. -/
-theorem count_unionAll (a b : List Order) :
-    bagCount (a ++ b) = bagCount a + bagCount b := by
+/-- Aggregation demo: a `LEFT JOIN`+`COALESCE(_,0)` count equals the correlated count. -/
+theorem coalesce_count_demo {K : Type} [DecidableEq K]
+    (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType) :
+    (if k ∈ okeys key rel then cnt key k rel else 0) = cnt key k rel := by
   grind +locals
 
 end Example13

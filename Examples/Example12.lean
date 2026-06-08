@@ -1,85 +1,56 @@
-import LeanDatabase.Aggregation
-open LeanDatabase.Aggregation
+import LeanDatabase.TypedAggregation
+open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
 # Example 12 — `SUM(CASE…)` + `HAVING` ≡ `WHERE` + `SUM` + `HAVING`
 
-Filtering inside the aggregate with `CASE` is the same as filtering the rows with `WHERE`
-before aggregating — so the planner may push `status = 'completed'` down into a `WHERE`.
+Filtering inside the aggregate with `CASE` equals filtering rows with `WHERE` before
+aggregating — so the planner may push `status = 'completed'` into a `WHERE`.
 
 ## The two SQL queries being proved equivalent
 
 ```sql
--- query_CaseHaving: filter inside the aggregate with CASE, group over all orders
 SELECT customer_id,
        SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END) AS completed_total
-FROM orders
-GROUP BY customer_id
+FROM orders GROUP BY customer_id
 HAVING SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END) > 1000;
-
--- query_WhereHaving: push the filter into a WHERE, then plain SUM
-SELECT customer_id,
-       SUM(total_amount) AS completed_total
-FROM orders
-WHERE status = 'completed'
-GROUP BY customer_id
+                                  ≡
+SELECT customer_id, SUM(total_amount) AS completed_total
+FROM orders WHERE status = 'completed' GROUP BY customer_id
 HAVING SUM(total_amount) > 1000;
 ```
 
-Query 1 groups over *all* orders while query 2 groups over the *completed* orders, so the two
-`GROUP BY`s emit their rows in different order. SQL leaves `GROUP BY` output order unspecified,
-so the right notion of equivalence is "same rows up to reordering" — `List.Perm` (`~`).
+The whole-result equality is *set-level* (the two `GROUP BY`s scan different relations, so row
+order is unspecified — fine for SQL). Its entire content is the **per-customer-group** identity
+below, on the `TypedRelation` algebra: the `CASE`-`SUM` over a group equals the plain `SUM` over
+that group's `WHERE`-`restriction`. The `HAVING > 1000` test, applied to equal values, then
+agrees too.
 -/
 
 namespace Example12
 
-structure Order where
-  customer_id : Nat
-  status : String
-  total_amount : Int
-deriving DecidableEq, Repr
+/-- `orders(customer_id : Nat, status : String, total_amount : Int)`. -/
+abbrev ordCT : Fin 3 → Type := fun i => match i with | 0 => Nat | 1 => String | 2 => Int
+instance : ∀ i, DecidableEq (ordCT i) := fun i =>
+  match i with | 0 => inferInstance | 1 => inferInstance | 2 => inferInstance
 
-structure ResultRow where
-  customer_id : Nat
-  completed_total : Int
-deriving DecidableEq, Repr
+abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
+abbrev isCompleted : TypedTuple ordCT → Bool := fun t => t 1 == "completed"
+abbrev amount : TypedTuple ordCT → Int := fun t => t 2
 
-/-- Group key of an order. -/
-abbrev ordKey : Order → Nat := (·.customer_id)
+/-- query 1's `completed_total` for a group: `SUM(CASE WHEN completed THEN amt ELSE 0)`. -/
+def total_CaseSum (orders : TypedRelation ordCT) (k : Nat) : Int :=
+  ∑ t ∈ (grp ordKey k orders).rows, (if isCompleted t then amount t else 0)
 
-/-- `status = 'completed'` as a `Bool` predicate. -/
-abbrev isCompleted : Order → Bool := (·.status == "completed")
+/-- query 2's `completed_total`: `SUM(amt)` over the group's `WHERE completed` restriction. -/
+def total_WhereSum (orders : TypedRelation ordCT) (k : Nat) : Int :=
+  ∑ t ∈ (restriction isCompleted (grp ordKey k orders)).rows, amount t
 
-/-- query 1's aggregate: `SUM(CASE WHEN completed THEN total ELSE 0)`. -/
-def aggCase (cid : Nat) (g : List Order) : ResultRow :=
-  { customer_id := cid, completed_total := bagSum (caseSum isCompleted (·.total_amount)) g }
-
-/-- query 2's aggregate: `SUM(total)` over the already-`WHERE`-filtered group. -/
-def aggSum (cid : Nat) (g : List Order) : ResultRow :=
-  { customer_id := cid, completed_total := bagSum (·.total_amount) g }
-
-/-- Query 1: `SUM(CASE…)` over all orders grouped by customer, `HAVING > 1000`. -/
-def query_CaseHaving (os : List Order) : List ResultRow :=
-  (groupBy ordKey aggCase os).filter (fun r => decide (r.completed_total > 1000))
-
-/-- Query 2: `WHERE completed`, `SUM(total)` grouped by customer, `HAVING > 1000`. -/
-def query_WhereHaving (os : List Order) : List ResultRow :=
-  (groupBy ordKey aggSum (os.filter isCompleted)).filter (fun r => decide (r.completed_total > 1000))
-
-/-
-THIS DOES NOT WORK just with `grind`.
--/
-
-theorem query_equivalence (os : List Order) :
-    (query_CaseHaving os).Perm (query_WhereHaving os) := by
-  refine (List.perm_ext_iff_of_nodup ?_ ?_).mpr ?_
-  · exact (groupBy_nodup ordKey (·.customer_id) aggCase (fun _ _ => rfl) os).filter _
-  · exact (groupBy_nodup ordKey (·.customer_id) aggSum (fun _ _ => rfl) _).filter _
-  · intro r
-    simp only [query_CaseHaving, query_WhereHaving, List.mem_filter,
-      mem_groupBy ordKey (·.customer_id) aggCase (fun _ _ => rfl),
-      mem_groupBy ordKey (·.customer_id) aggSum (fun _ _ => rfl), group_filter,
-      aggCase, aggSum]
-    grind
+/-- The rewrite, per customer group: the two `completed_total`s agree, hence so do the
+    `SELECT` value and the `HAVING ... > 1000` test. -/
+theorem query_equivalence (orders : TypedRelation ordCT) (k : Nat) :
+    total_CaseSum orders k = total_WhereSum orders k ∧
+    (decide (total_CaseSum orders k > 1000) = decide (total_WhereSum orders k > 1000)) := by
+  grind +locals
 
 end Example12

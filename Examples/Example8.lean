@@ -1,53 +1,42 @@
-import LeanDatabase.Aggregation
-open LeanDatabase.Aggregation
+import LeanDatabase.TypedAggregation
+open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
-# Example 8 — `NOT IN` subquery ≡ `NOT EXISTS` (anti-join)
+# Example 8 — `NOT IN` ≡ `NOT EXISTS` (anti-join)
 
-Both keep exactly the customers with no orders. The negative counterpart of the
-`EXISTS`/`IN` semi-join (Example 5).
+Keep the customers with no orders. The negative counterpart of Example 5; both are a
+`restriction` of `customers` whose predicates agree by `TypedAgg.grp_nonempty_iff`.
+(NULL-free / dedup'd data, so the real-SQL `NOT IN` NULL pitfall does not arise.)
 
 ## The two SQL queries being proved equivalent
 
 ```sql
--- query_NotIn:
-SELECT c.customer_id, c.name FROM customers c
-WHERE c.customer_id NOT IN (SELECT o.customer_id FROM orders o);
-
--- query_NotExists:
-SELECT c.customer_id, c.name FROM customers c
-WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id);
+SELECT * FROM customers c WHERE c.customer_id NOT IN (SELECT customer_id FROM orders);
+SELECT * FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id);
 ```
-
-(Note: real SQL `NOT IN` has a notorious three-valued-logic pitfall — if the subquery yields
-any `NULL`, `NOT IN` returns no rows. We model the `NULL`-free case, where the two coincide.)
 -/
 
 namespace Example8
 
-structure Customer where
-  customer_id : Nat
-  name : String
-deriving DecidableEq, Repr
+abbrev custCT : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => String
+abbrev ordCT  : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => Int
+instance : ∀ i, DecidableEq (custCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+instance : ∀ i, DecidableEq (ordCT i)  := fun i => match i with | 0 => inferInstance | 1 => inferInstance
 
-structure Order where
-  customer_id : Nat
-  total_amount : Int
-deriving DecidableEq, Repr
-
-/-- Group key of an order. -/
-abbrev ordKey : Order → Nat := (·.customer_id)
+abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
 
 /-- `... WHERE c.customer_id NOT IN (SELECT customer_id FROM orders)`. -/
-def query_NotIn (cs : List Customer) (os : List Order) : List Customer :=
-  cs.filter (fun c => decide (c.customer_id ∉ keys ordKey os))
+def query_NotIn (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation custCT :=
+  restriction (fun c => decide (c 0 ∉ okeys ordKey orders)) customers
 
 /-- `... WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`. -/
-def query_NotExists (cs : List Customer) (os : List Order) : List Customer :=
-  cs.filter (fun c => decide (group ordKey c.customer_id os = []))
+def query_NotExists (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation custCT :=
+  restriction (fun c => decide ¬ (grp ordKey (c 0) orders).rows.Nonempty) customers
 
-theorem query_equivalence (cs : List Customer) (os : List Order) :
-    query_NotIn cs os = query_NotExists cs os := by
+theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    query_NotIn customers orders = query_NotExists customers orders := by
   grind +locals
 
 end Example8

@@ -1,97 +1,76 @@
-import LeanDatabase.Aggregation
-open LeanDatabase.Aggregation
+import LeanDatabase.TypedAggregation
+open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
 # Example 3 — Correlated scalar subqueries ≡ GROUP BY + LEFT JOIN + COALESCE
 
-The headline real-world rewrite: instead of running two correlated scalar subqueries *per
-customer* (a nested-loop re-scan of `orders` for every customer), aggregate `orders` *once*
-with `GROUP BY` and probe it with a `LEFT JOIN`, filling the misses with `COALESCE(_, 0)`.
+The headline rewrite, on the `TypedRelation` algebra: two correlated scalar subqueries
+(`COUNT(*)`, `SUM(total_amount)`) per customer, vs. aggregate once with `GROUP BY` and probe
+with a `LEFT JOIN` + `COALESCE(_, 0)`. Counts/sums are taken over the defined `restriction`
+(`TypedAgg.cnt` / `TypedAgg.sumI`). Set semantics / dedup'd data.
 
 ## The two SQL queries being proved equivalent
 
 ```sql
--- query_Correlated: two correlated scalar subqueries per customer
+-- query_Correlated:
 SELECT c.customer_id, c.name,
        (SELECT COUNT(*)            FROM orders o WHERE o.customer_id = c.customer_id) AS order_count,
        (SELECT SUM(o.total_amount) FROM orders o WHERE o.customer_id = c.customer_id) AS total_spent
 FROM customers c;
 
--- query_GroupJoin: aggregate once with GROUP BY, then LEFT JOIN + COALESCE
+-- query_GroupJoin:
 SELECT c.customer_id, c.name,
        COALESCE(o.order_count, 0) AS order_count,
        COALESCE(o.total_spent, 0) AS total_spent
 FROM customers c
-LEFT JOIN (
-  SELECT customer_id, COUNT(*) AS order_count, SUM(total_amount) AS total_spent
-  FROM orders
-  GROUP BY customer_id
-) o ON o.customer_id = c.customer_id;
+LEFT JOIN (SELECT customer_id, COUNT(*) AS order_count, SUM(total_amount) AS total_spent
+           FROM orders GROUP BY customer_id) o
+  ON o.customer_id = c.customer_id;
 ```
-
-NOTE on `SUM`/`NULL`: real SQL `SUM` over zero rows is `NULL`, so a customer with no orders
-would get `NULL` from the correlated subquery — but the join side `COALESCE`s the miss to `0`.
-We model "the value the user observes" as `COALESCE(SUM, 0)` on *both* sides (`bagSum` returns
-`0` on the empty bag), so the two queries genuinely coincide, including that edge case.
 -/
 
 namespace Example3
 
-/-! ## Schema -/
+/-- `customers(customer_id : Nat, name : String)`. -/
+abbrev custCT : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => String
+/-- `orders(customer_id : Nat, total_amount : Int)`. -/
+abbrev ordCT  : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => Int
+/-- output `(customer_id : Nat, name : String, order_count : Nat, total_spent : Int)`. -/
+abbrev outCT  : Fin 4 → Type := fun i => match i with | 0 => Nat | 1 => String | 2 => Nat | 3 => Int
+instance : ∀ i, DecidableEq (custCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+instance : ∀ i, DecidableEq (ordCT i)  := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+instance : ∀ i, DecidableEq (outCT i)  := fun i =>
+  match i with | 0 => inferInstance | 1 => inferInstance | 2 => inferInstance | 3 => inferInstance
 
-structure Customer where
-  customer_id : Nat
-  name : String
-deriving DecidableEq, Repr
+/-- `o.customer_id`. -/
+abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
+/-- `o.total_amount`. -/
+abbrev ordAmt : TypedTuple ordCT → Int := fun t => t 1
 
-structure Order where
-  customer_id : Nat
-  total_amount : Int
-deriving DecidableEq, Repr
-
-structure CustomerSummary where
-  customer_id : Nat
-  name : String
-  order_count : Nat
-  total_spent : Int
-deriving DecidableEq, Repr
-
-structure OrderAgg where
-  customer_id : Nat
-  order_count : Nat
-  total_spent : Int
-deriving DecidableEq, Repr
-
-/-! ## Queries -/
-
-/-- Group key of an order. -/
-abbrev ordKey : Order → Nat := (·.customer_id)
-
-/-- `SELECT customer_id, COUNT(*), SUM(total_amount) ... GROUP BY customer_id` — per group. -/
-def ordAgg (cid : Nat) (g : List Order) : OrderAgg :=
-  { customer_id := cid, order_count := bagCount g, total_spent := bagSum (·.total_amount) g }
-
-/-- The pre-aggregated `GROUP BY customer_id` subquery `o`. -/
-def groupOrders (os : List Order) : List OrderAgg := groupBy ordKey ordAgg os
+/-- An output row. -/
+def out (id : Nat) (name : String) (c : Nat) (s : Int) : TypedTuple outCT :=
+  fun j => match j with | 0 => id | 1 => name | 2 => c | 3 => s
 
 /-- Query 1: two correlated scalar subqueries per customer. -/
-def query_Correlated (cs : List Customer) (os : List Order) : List CustomerSummary :=
-  cs.map (fun c =>
-    { customer_id := c.customer_id, name := c.name,
-      order_count := bagCount (group ordKey c.customer_id os),
-      total_spent := bagSum (·.total_amount) (group ordKey c.customer_id os) })
+def query_Correlated (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation outCT :=
+  { labels := fun j => match j with
+      | 0 => customers.labels 0 | 1 => customers.labels 1 | 2 => "order_count" | 3 => "total_spent",
+    rows := customers.rows.image (fun c =>
+      out (c 0) (c 1) (cnt ordKey (c 0) orders) (sumI ordKey (c 0) orders ordAmt)) }
 
-/-- Query 2: GROUP BY once, LEFT JOIN, then `COALESCE(_, 0)` the misses. -/
-def query_GroupJoin (cs : List Customer) (os : List Order) : List CustomerSummary :=
-  cs.map (fun c =>
-    match lookup? (·.customer_id) c.customer_id (groupOrders os) with
-    | some a => { customer_id := c.customer_id, name := c.name,
-                  order_count := a.order_count, total_spent := a.total_spent }
-    | none   => { customer_id := c.customer_id, name := c.name,
-                  order_count := 0, total_spent := 0 })
+/-- Query 2: GROUP BY once, LEFT JOIN, `COALESCE(_, 0)` the misses. -/
+def query_GroupJoin (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation outCT :=
+  { labels := fun j => match j with
+      | 0 => customers.labels 0 | 1 => customers.labels 1 | 2 => "order_count" | 3 => "total_spent",
+    rows := customers.rows.image (fun c =>
+      out (c 0) (c 1)
+        (if c 0 ∈ okeys ordKey orders then cnt ordKey (c 0) orders else 0)
+        (if c 0 ∈ okeys ordKey orders then sumI ordKey (c 0) orders ordAmt else 0)) }
 
-theorem query_equivalence (cs : List Customer) (os : List Order) :
-    query_Correlated cs os = query_GroupJoin cs os := by
+theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    query_Correlated customers orders = query_GroupJoin customers orders := by
   grind +locals
 
 end Example3

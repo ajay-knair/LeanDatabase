@@ -1,69 +1,47 @@
-import LeanDatabase.Aggregation
-open LeanDatabase.Aggregation
+import LeanDatabase.TypedAggregation
+open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
 # Example 9 — `LEFT JOIN … WHERE right IS NULL` ≡ `NOT EXISTS` (anti-join)
 
-The "anti-join via outer join" idiom: `LEFT JOIN` customers to orders, then keep only the
-rows where the order side came back `NULL` (no match). That equals `NOT EXISTS`.
+The outer-join anti-join idiom. On the `TypedRelation` algebra both are a `restriction` of
+`customers`: the `LEFT JOIN` probe is `NULL` exactly when the customer's id is absent from the
+order keys (`c.customer_id ∉ okeys`), which by `TypedAgg.grp_nonempty_iff` is the same as the
+`NOT EXISTS` group being empty.
 
 ## The two SQL queries being proved equivalent
 
 ```sql
--- query_LeftJoinNull:
-SELECT c.customer_id, c.name
-FROM customers c
+SELECT c.* FROM customers c
 LEFT JOIN orders o ON o.customer_id = c.customer_id
 WHERE o.customer_id IS NULL;
 
--- query_NotExists:
-SELECT c.customer_id, c.name
-FROM customers c
+SELECT c.* FROM customers c
 WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id);
 ```
-
-We model the `LEFT JOIN ... WHERE o IS NULL` by its surviving-rows semantics: probe the
-orders side for each customer (`lookup?` into the grouped order keys = the join), and keep the
-customer exactly when that probe is `NULL` (`isNone`, i.e. no matching order). This keeps the
-same set of customers as the raw outer join + `IS NULL`, while staying within the
-`filter`/`lookup` machinery.
 -/
 
 namespace Example9
 
-structure Customer where
-  customer_id : Nat
-  name : String
-deriving DecidableEq, Repr
+abbrev custCT : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => String
+abbrev ordCT  : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => Int
+instance : ∀ i, DecidableEq (custCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+instance : ∀ i, DecidableEq (ordCT i)  := fun i => match i with | 0 => inferInstance | 1 => inferInstance
 
-structure Order where
-  customer_id : Nat
-  total_amount : Int
-deriving DecidableEq, Repr
+abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
 
-structure OrderKey where
-  customer_id : Nat
-deriving DecidableEq, Repr
+/-- `LEFT JOIN orders … WHERE o.customer_id IS NULL`: the join probe found no order key. -/
+def query_LeftJoinNull (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation custCT :=
+  restriction (fun c => decide (c 0 ∉ okeys ordKey orders)) customers
 
-/-- Group key of an order. -/
-abbrev ordKey : Order → Nat := (·.customer_id)
+/-- `WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`. -/
+def query_NotExists (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    TypedRelation custCT :=
+  restriction (fun c => decide ¬ (grp ordKey (c 0) orders).rows.Nonempty) customers
 
-/-- The distinct order customer ids, as a `GROUP BY customer_id` subquery to join against. -/
-def ordAgg (cid : Nat) (_g : List Order) : OrderKey := { customer_id := cid }
-
-def groupOrders (os : List Order) : List OrderKey := groupBy ordKey ordAgg os
-
-/-- `LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE o.customer_id IS NULL`:
-    keep customers whose join probe is `NULL`. -/
-def query_LeftJoinNull (cs : List Customer) (os : List Order) : List Customer :=
-  cs.filter (fun c => (lookup? (·.customer_id) c.customer_id (groupOrders os)).isNone)
-
-/-- `... WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`. -/
-def query_NotExists (cs : List Customer) (os : List Order) : List Customer :=
-  cs.filter (fun c => decide (group ordKey c.customer_id os = []))
-
-theorem query_equivalence (cs : List Customer) (os : List Order) :
-    query_LeftJoinNull cs os = query_NotExists cs os := by
+theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
+    query_LeftJoinNull customers orders = query_NotExists customers orders := by
   grind +locals
 
 end Example9
