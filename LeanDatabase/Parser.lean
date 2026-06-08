@@ -28,4 +28,7 @@ elab "egfilter%" : term => do
 
 #eval egfilter% 32 true
 
+example : egfilter% = fun age isActive ↦ (30 < age) && isActive  := by
+  grind
+
 end LeanDatabase
