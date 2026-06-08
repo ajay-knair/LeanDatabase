@@ -142,7 +142,7 @@ instance  [inst : ∀ i, LinearOrder (colType i)] : LinearOrder (TypedTuple colT
 
 /-! ## Definitions -/
 
-@[ext, grind cases] structure TypedRelation (colType : Fin n → Type) where
+@[ext, grind cases] structure TypedRelation (colType : Fin n → Type) [∀ i, DecidableEq (colType i)] where
   labels : Fin n → String
   rows   : Finset (TypedTuple colType)
 deriving Inhabited

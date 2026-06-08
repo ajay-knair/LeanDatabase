@@ -6,7 +6,7 @@ namespace LeanDatabase
 
 structure ColumnDef where
   name : String
-  colTypetr: String
+  typestr: String
   isPrimaryKey : Bool := false
   isNullable : Bool := true
   isUnique : Bool := false
@@ -85,7 +85,7 @@ deriving Repr, BEq
 def SQLColumn.toColumnDef (col : SQLColumn) : ColumnDef :=
   {
     name := col.name,
-    colTypetr := s!"{col.sqlType}",
+    typestr := s!"{col.sqlType}",
     isPrimaryKey := col.constraints.primaryKey,
     isNullable := !col.constraints.notNull,
     isUnique := col.constraints.unique,

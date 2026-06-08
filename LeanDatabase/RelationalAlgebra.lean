@@ -124,7 +124,7 @@ theorem restriction_inter_distrib (p : TypedTuple colType → Bool)
 -- Theorem: Commutativity of Selection
 -- σ_a( σ_b( R ) ) = σ_b( σ_a( R ) )
 -- "The order of filters does not matter"
-omit [∀ i, DecidableEq (colType i)] in
+
 theorem restriction_comm (p1 p2 : (TypedTuple colType → Bool)) (r : TypedRelation colType) :
     restriction p1 (restriction p2 r) = restriction p2 (restriction p1 r) := by
   simp_all only [restriction]
@@ -135,7 +135,7 @@ theorem restriction_comm (p1 p2 : (TypedTuple colType → Bool)) (r : TypedRelat
 -- Theorem: Idempotence of Selection
 -- σ_p ( σ_p ( R ) ) = σ_p( R )
 -- "Filtering twice is the same as filtering once"
-omit [∀ i, DecidableEq (colType i)] in
+
 theorem restriction_idempotence (p : TypedTuple colType → Bool) (r : TypedRelation colType) :
     restriction p (restriction p r) = restriction p r := by
   simp only [restriction, TypedRelation.mk.injEq, Finset.filter_eq_self, Finset.mem_filter, and_imp,
@@ -147,7 +147,7 @@ theorem restriction_idempotence (p : TypedTuple colType → Bool) (r : TypedRela
 -- Theorem: Cascading Selection
 -- σ_{p1}(σ_{p2}(R)) = σ_{p1 ∧ p2}(R)
 -- "Applying two filters sequentially is the same as applying them combined with AND."
-omit [∀ i, DecidableEq (colType i)] in
+
 @[grind =]
 theorem restriction_cascade (p1 p2 : (TypedTuple colType → Bool)) (r : TypedRelation colType) :
     restriction p1 (restriction p2 r) =
@@ -181,7 +181,7 @@ theorem restriction_diff_conj_restriction (p q : TypedTuple colType → Bool) (r
 
 -- Theorem: Selection on Empty is Empty
 -- σ(∅) = ∅
-omit [∀ i, DecidableEq (colType i)] in
+
 theorem restriction_empty (p :  TypedTuple colType → Bool) (l : Fin n → String) :
     (restriction p (emptyRel l)).rows = ∅ := by
   simp only [restriction, emptyRel]
@@ -203,7 +203,7 @@ theorem inter_zero (r : TypedRelation colType) :
 
 -- Theorem: Selection is Monotone
 -- If R ⊆ S, then σ(R) ⊆ σ(S)
-omit [∀ i, DecidableEq (colType i)] in
+
 theorem restriction_monotone (p : (TypedTuple colType → Bool)) (r1 r2 : TypedRelation colType) :
     r1.rows ⊆ r2.rows →
     (restriction p r1).rows ⊆ (restriction p r2).rows := by
