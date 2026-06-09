@@ -1,5 +1,6 @@
 import Lean
 import LeanDatabase.Schema
+import LeanDatabase.GrindToolbox
 
 open Lean Meta Elab Term
 
@@ -85,15 +86,10 @@ def checkEquivCore (data: Json) : CoreM Bool := do
 macro "SELECT" " * " "FROM" ident "WHERE" t:term : term =>
     return t
 
-def dataEg := json% {
-  "schema": [
-    {"name": "age", "type": "Int"},
-    {"name": "isActive", "type": "Bool"}
-  ],
-  "first": "SELECT * FROM table WHERE age > 30 && isActive",
-  "second": "SELECT * FROM table WHERE age > 30 && isActive && age > 20"
-}
+def dataEg := json% {"schema": [{"name": "age", "type": "Int"}, {"name": "isActive", "type": "Bool"}],
+  "first": "SELECT * FROM table WHERE age > 30 && isActive","second": "SELECT * FROM table WHERE age > 30 && isActive && age > 20"}
 
 #eval checkEquiv dataEg
+
 
 end LeanDatabase

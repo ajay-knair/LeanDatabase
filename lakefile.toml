@@ -17,3 +17,7 @@ name = "LeanDatabase"
 [[lean_lib]]
 name = "Examples"
 globs = ["Examples.+"]
+
+[[lean_exe]]
+name = "sql_process"
+supportInterpreter = true
