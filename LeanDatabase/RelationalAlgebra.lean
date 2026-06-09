@@ -1,5 +1,5 @@
 import Mathlib
-import LeanDatabase.TypedRelation
+import LeanDatabase.CurriedPredicates
 
 namespace LeanDatabase
 

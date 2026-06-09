@@ -1,4 +1,4 @@
-import LeanDatabase.TypedRelation
+import LeanDatabase.CurriedPredicates
 
 namespace LeanDatabase
 
@@ -71,6 +71,12 @@ def restriction (predicate : TypedTuple colType → Bool) (rel : TypedListRelati
     labels := rel.labels,
     rows   := rel.rows.filter (fun t => predicate t)
   }
+
+def restrictionCurried (p: curriedPred (cols := colType)) (rel: TypedListRelation colType) : TypedListRelation colType :=
+{
+  labels := rel.labels,
+  rows := rel.rows.filter (fun t => applyCurried p t)
+}
 
 -- Union
 def union (r1 r2 : TypedListRelation colType) : TypedListRelation colType :=
@@ -177,6 +183,11 @@ theorem restriction_length_le
     (restriction predicate rel).rows.length ≤ rel.rows.length := by
     simp only [restriction, List.length_filter_le ]
 
-end ListRelation
+omit [(i : Fin n) → DecidableEq (colType i)] [(i : Fin n) → LinearOrder (colType i)] in
+theorem restrictionCurried_card_le
+    (p : curriedPred (cols := colType))(rel : TypedListRelation colType) :
+    (restrictionCurried p rel).rows.length ≤ rel.rows.length:= by
+  simp only [restrictionCurried, List.length_filter_le]
 
+end ListRelation
 end LeanDatabase
