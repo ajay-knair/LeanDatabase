@@ -14,7 +14,6 @@ import html
 import json
 import os
 import queue
-import select
 import subprocess
 import sys
 import threading
@@ -26,7 +25,7 @@ from typing import Any
 
 
 PORT = 6767
-REQUEST_TIMEOUT_SECONDS = 120.0
+REQUEST_TIMEOUT_SECONDS = 300.0
 MAX_BODY_BYTES = 1_000_000
 
 
@@ -37,11 +36,14 @@ class SqlProcess:
         self.lock = threading.Lock()
         self.ready = threading.Event()
         self.stderr_lines: "queue.Queue[str]" = queue.Queue(maxsize=200)
+        self.responses: "queue.Queue[Any]" = queue.Queue()
         self.proc: subprocess.Popen[str] | None = None
         self.start()
 
     def start(self) -> None:
         self.ready.clear()
+        self._clear_responses()
+        print("Starting lake exe sql_process", file=sys.stderr, flush=True)
         self.proc = subprocess.Popen(
             ["lake", "exe", "sql_process"],
             cwd=self.repo_dir,
@@ -52,6 +54,43 @@ class SqlProcess:
             bufsize=1,
         )
         threading.Thread(target=self._drain_stderr, daemon=True).start()
+        threading.Thread(target=self._drain_stdout, daemon=True).start()
+
+    def stop(self) -> None:
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    def wait_until_ready(self) -> None:
+        deadline = time.monotonic() + self.timeout
+        next_notice = time.monotonic()
+        while not self.ready.is_set():
+            proc = self.proc
+            if proc is not None and proc.poll() is not None:
+                raise RuntimeError(
+                    f"sql_process exited before readiness with code {proc.returncode}"
+                )
+            now = time.monotonic()
+            if now >= deadline:
+                raise TimeoutError(
+                    "timed out waiting for sql_process readiness on stderr"
+                )
+            if now >= next_notice:
+                print(
+                    "Waiting for sql_process readiness...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                next_notice = now + 10.0
+            self.ready.wait(timeout=min(1.0, deadline - now))
+        print("sql_process is ready", file=sys.stderr, flush=True)
+
+    def _clear_responses(self) -> None:
+        while True:
+            try:
+                self.responses.get_nowait()
+            except queue.Empty:
+                return
 
     def _drain_stderr(self) -> None:
         proc = self.proc
@@ -70,6 +109,25 @@ class SqlProcess:
                 except queue.Empty:
                     pass
                 self.stderr_lines.put_nowait(line)
+
+    def _drain_stdout(self) -> None:
+        proc = self.proc
+        if proc is None or proc.stdout is None:
+            return
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n")
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                print(f"[sql_process] {line}", file=sys.stderr, flush=True)
+                continue
+            if isinstance(parsed, dict) and parsed.get("status") in {"ok", "error"}:
+                self.responses.put(parsed)
+            else:
+                print(f"[sql_process] {line}", file=sys.stderr, flush=True)
 
     def recent_stderr(self) -> list[str]:
         return list(self.stderr_lines.queue)
@@ -102,38 +160,14 @@ class SqlProcess:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("timed out waiting for sql_process")
-
-                line = self._readline_with_timeout(proc, remaining)
-                if line is None:
-                    raise TimeoutError("timed out waiting for sql_process")
-
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    return json.loads(stripped)
-                except json.JSONDecodeError:
-                    # Be tolerant of build/status output on stdout; the Lean
-                    # executable's actual protocol response is a JSON line.
-                    print(
-                        f"[sql_process stdout skipped] {stripped}",
-                        file=sys.stderr,
-                        flush=True,
+                if proc.poll() is not None:
+                    raise RuntimeError(
+                        f"sql_process exited unexpectedly with code {proc.returncode}"
                     )
-
-    @staticmethod
-    def _readline_with_timeout(
-        proc: subprocess.Popen[str], timeout: float
-    ) -> str | None:
-        assert proc.stdout is not None
-        readable, _, _ = select.select([proc.stdout], [], [], timeout)
-        if not readable:
-            return None
-        line = proc.stdout.readline()
-        if line == "":
-            rc = proc.poll()
-            raise RuntimeError(f"sql_process exited unexpectedly with code {rc}")
-        return line
+                try:
+                    return self.responses.get(timeout=min(0.2, remaining))
+                except queue.Empty:
+                    continue
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -612,18 +646,22 @@ def main() -> None:
     repo_dir = Path(__file__).resolve().parent
     os.chdir(repo_dir)
 
-    server = SqlServer((args.host, args.port), Handler)
-    server.sql_process = SqlProcess(repo_dir, timeout=args.timeout)
-    print(f"Serving on http://{args.host}:{args.port}", file=sys.stderr, flush=True)
+    server: SqlServer | None = None
+    sql_process: SqlProcess | None = None
     try:
+        sql_process = SqlProcess(repo_dir, timeout=args.timeout)
+        sql_process.wait_until_ready()
+        server = SqlServer((args.host, args.port), Handler)
+        server.sql_process = sql_process
+        print(f"Serving on http://{args.host}:{args.port}", file=sys.stderr, flush=True)
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
-        proc = server.sql_process.proc
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
+        if server is not None:
+            server.server_close()
+        if sql_process is not None:
+            sql_process.stop()
 
 
 if __name__ == "__main__":
