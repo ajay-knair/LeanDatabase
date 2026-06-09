@@ -190,8 +190,8 @@ theorem restriction_idempotence (p : TypedTuple colType → Bool) (r : TypedRela
 @[grind =]
 theorem restriction_cascade (p1 p2 : (TypedTuple colType → Bool)) (r : TypedRelation colType) :
     restriction p1 (restriction p2 r) =
-    restriction (fun x => p1 x && p2 x) r := by
-  simp only [restriction, Bool.and_eq_true, TypedRelation.mk.injEq, true_and]
+    restriction (pAnd p1 p2) r := by
+  simp only [restriction, pAnd, Bool.and_eq_true, TypedRelation.mk.injEq, true_and]
   grind
 
 /-! ### Difference Properties -/
@@ -211,8 +211,8 @@ theorem restriction_diff_distrib (p : TypedTuple colType → Bool) (r1 r2 : Type
 -- "Subtracting a filtered set from another filtered set (of the same source)
 @[grind =]
 theorem restriction_diff_conj_restriction (p q : TypedTuple colType → Bool) (r : TypedRelation colType) :
-    minus (restriction p r) (restriction q r) = restriction (fun t => p t && !q t) r := by
-  simp_all only [minus, restriction, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    minus (restriction p r) (restriction q r) = restriction (pAnd p (pNot q)) r := by
+  simp_all only [minus, restriction, pAnd, pNot, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
     TypedRelation.mk.injEq, true_and]
   grind
 

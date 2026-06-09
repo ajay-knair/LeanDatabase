@@ -301,13 +301,3 @@ unsafe def simpleFormat [∀ i, DecidableEq (colType i)] [∀ i, ToString (colTy
 unsafe instance [∀ i, DecidableEq (colType i)] [∀ i, ToString (colType i)] :
     Repr (TypedRelation colType) where
   reprPrec rel _ := simpleFormat rel
-
-def count(f : TypedTuple colType → Prop) [DecidablePred f] (r: TypedRelation colType)(unique : Bool := false): ℕ  :=
-  match unique with
-  | true   => (r.rows.filter f).card
-  | false  => (r.rows.toListSorted.filter f).length
-
-def groupBy {α : Type} [DecidableEq α] (f : TypedTuple colType → α)
-    (r : TypedRelation colType) : Finset (α × Finset (TypedTuple colType)) :=
-  let keys := r.rows.image f
-  keys.image (fun k => (k, r.rows.filter (fun t => f t = k)))
