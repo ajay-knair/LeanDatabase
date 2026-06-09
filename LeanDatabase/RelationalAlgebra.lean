@@ -270,3 +270,20 @@ theorem diff_union_distrib (r s t : TypedRelation colType) :
   · grind
 
 end LeanDatabase
+
+namespace LeanDatabase.EquivTactic
+
+/-!
+Creating a `sql_equiv` tactic to prove equivalences between SQL queries, by doing `simp` and `grind` using definitions produced and grinding on locals.
+
+Idea is to use JUST this tactic to prove equivalences between SQL queries.
+
+Possible future work: extend this tactic to also be able to disprove using `plausible` (counterexample search).
+-/
+
+
+macro "sql_equiv" : tactic => `(tactic|
+  first | grind +locals | (simp_all; grind +locals) | (simp_all; done)
+)
+
+end LeanDatabase.EquivTactic

@@ -37,6 +37,6 @@ def query_NotExists (customers : TypedRelation custCT) (orders : TypedRelation o
 
 theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
     query_NotIn customers orders = query_NotExists customers orders := by
-  grind +locals
+  sql_equiv
 
 end Example8

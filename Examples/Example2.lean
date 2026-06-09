@@ -40,6 +40,6 @@ def query_SinglePass (r : TypedRelation colType) : TypedRelation colType :=
 
 theorem query_equivalence (r : TypedRelation colType) :
     query_MultiPass isHighValue isActive r = query_SinglePass isHighValue isActive r := by
-  grind +locals
+  sql_equiv
 
 end Example2

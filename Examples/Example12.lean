@@ -51,6 +51,6 @@ def total_WhereSum (orders : TypedRelation ordCT) (k : Nat) : Int :=
 theorem query_equivalence (orders : TypedRelation ordCT) (k : Nat) :
     total_CaseSum orders k = total_WhereSum orders k ∧
     (decide (total_CaseSum orders k > 1000) = decide (total_WhereSum orders k > 1000)) := by
-  grind +locals
+  sql_equiv
 
 end Example12

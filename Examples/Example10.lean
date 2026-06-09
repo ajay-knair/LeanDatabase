@@ -52,6 +52,6 @@ def query_UnionAll (tickets : TypedRelation colType) : TypedRelation colType :=
 theorem query_equivalence (tickets : TypedRelation colType) :
     query_Or isOpen isHigh tickets = query_Union isOpen isHigh tickets ∧
     query_Or isOpen isHigh tickets = query_UnionAll isOpen isHigh tickets := by
-  grind +locals
+  sql_equiv
 
 end Example10

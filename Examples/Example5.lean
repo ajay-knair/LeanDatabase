@@ -37,6 +37,6 @@ def query_In (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
 
 theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
     query_Exists customers orders = query_In customers orders := by
-  grind +locals
+  sql_equiv
 
 end Example5

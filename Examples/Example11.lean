@@ -32,10 +32,12 @@ abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
 abbrev createdAt : TypedTuple ordCT → Nat := fun t => t 1
 
 /-- `JOIN … MAX(created_at) … ON m.latest = o.created_at`: keep group-maximal rows. -/
+@[simp, grind .]
 def query_MaxJoin (orders : TypedRelation ordCT) : TypedRelation ordCT :=
   restriction (fun o => decide (createdAt o = groupMaxN ordKey (ordKey o) orders createdAt)) orders
 
 /-- `WHERE NOT EXISTS (… o2.customer_id = o.customer_id AND o2.created_at > o.created_at)`. -/
+@[simp, grind .]
 def query_NotExistsLater (orders : TypedRelation ordCT) : TypedRelation ordCT :=
   restriction
     (fun o => decide (¬ ∃ s ∈ (grp ordKey (ordKey o) orders).rows, createdAt o < createdAt s)) orders

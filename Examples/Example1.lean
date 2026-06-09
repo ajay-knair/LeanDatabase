@@ -43,6 +43,6 @@ def query_Fast (r1 r2 : TypedRelation colType) : TypedRelation colType :=
 
 theorem query_equivalence (r1 r2 : TypedRelation colType) :
     query_Slow isHighValue r1 r2 = query_Fast isHighValue r1 r2 := by
-  grind +locals
+  sql_equiv
 
 end Example1

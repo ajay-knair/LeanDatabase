@@ -1,4 +1,5 @@
 import LeanDatabase.TypedAggregation
+import LeanDatabase.RelationalAlgebra
 open LeanDatabase LeanDatabase.TypedAgg
 
 /-!
@@ -27,19 +28,18 @@ instance : ∀ i, DecidableEq (ordCT i) := fun i => match i with | 0 => inferIns
 abbrev ordAmt : TypedTuple ordCT → Int := fun t => t 1
 
 /-- `SELECT SUM(total_amount) FROM (archive UNION recent)`. -/
-@[grind .]
+@[simp, grind .]
 def query_Whole (archive recent : TypedRelation ordCT) : Int :=
   ∑ t ∈ (union archive recent).rows, ordAmt t
 
 /-- `(SELECT SUM … FROM archive) + (SELECT SUM … FROM recent)`. -/
-@[grind .]
+@[simp, grind .]
 def query_Shards (archive recent : TypedRelation ordCT) : Int :=
   (∑ t ∈ archive.rows, ordAmt t) + (∑ t ∈ recent.rows, ordAmt t)
 
 theorem query_equivalence (archive recent : TypedRelation ordCT)
     (h : Disjoint archive.rows recent.rows) :
     query_Whole archive recent = query_Shards archive recent := by
-  simp only [query_Whole, query_Shards, union]
-  grind +locals
+  sql_equiv
 
 end Example6
