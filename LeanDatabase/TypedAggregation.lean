@@ -118,6 +118,16 @@ def groupMaxN (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colT
   · intro h
     exact Nat.le_antisymm (Finset.le_sup ht) (Finset.sup_le h)
 
+/-- `simp`-friendly form of `eq_groupMaxN_iff`: the group key is the row's own key (`key t`) and
+    the side-condition is plain *table* membership `t ∈ rel.rows` — which `simp`/`sql_simp`
+    discharges from the per-row hypothesis produced by `Finset.filter_congr`. `grind` can't use
+    this (the `f t` head is a forbidden higher-order pattern) but `simp`'s higher-order matcher
+    can, so it is the lemma that lets `sql_equiv` finish the `MAX`/`NOT EXISTS` rewrite. -/
+@[simp] theorem eq_groupMaxN_table (key : TypedTuple colType → K) (f : TypedTuple colType → Nat)
+    (rel : TypedRelation colType) (t : TypedTuple colType) (ht : t ∈ rel.rows) :
+    (f t = groupMaxN key (key t) rel f) ↔ ∀ s ∈ (grp key (key t) rel).rows, f s ≤ f t :=
+  eq_groupMaxN_iff key (key t) rel f t (self_mem_grp key rel t ht)
+
 /-- A group is non-empty iff its key occurs (bridge for `EXISTS`/`IN`/`NOT EXISTS`/`NOT IN`). -/
 @[grind =] theorem grp_nonempty_iff (key : TypedTuple colType → K) (k : K)
     (rel : TypedRelation colType) : (grp key k rel).rows.Nonempty ↔ k ∈ okeys key rel := by
