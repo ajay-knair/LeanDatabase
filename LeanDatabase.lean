@@ -2,8 +2,10 @@
 -- Import modules here that should be built as part of the library.
 import LeanDatabase.TypedRelation
 import LeanDatabase.RelationalAlgebra
-import LeanDatabase.TypedAggregation
+import LeanDatabase.Operators.Aggregate
 import LeanDatabase.SQLToolbox
 import LeanDatabase.SQLEquiv
-import LeanDatabase.Join_CrossProduct
+import LeanDatabase.Operators.CrossProduct
+import LeanDatabase.Operators.Join
 import LeanDatabase.Schema
+import LeanDatabase.Operators

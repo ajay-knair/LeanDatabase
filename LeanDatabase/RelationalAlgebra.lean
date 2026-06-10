@@ -105,6 +105,8 @@ theorem diff_self (r : TypedRelation colType) :
 
 -- Theorem: Selection Distributes over Union
 -- σ_p(R ∪ S) = σ_p(R) ∪ σ_p(S)
+-- NOTE: `@[grind =_]` (reverse orientation) is LOAD-BEARING here — flipping to `@[grind =]`
+-- breaks Example4 (the union/EXCEPT distribution proof). Do not "fix" this to `=`.
 @[grind =_]
 theorem restriction_union_distrib (p : TypedTuple colType → Bool)
     (r1 r2 : TypedRelation colType) :
@@ -226,6 +228,34 @@ theorem restriction_empty (p :  TypedTuple colType → Bool) (l : Fin n → Stri
     (restriction p (emptyRel l)).rows = ∅ := by
   simp only [restriction, emptyRel]
   grind
+
+-- Theorem: Trivial WHERE is a no-op
+-- σ_true(R) = R
+@[simp, grind =]
+theorem restriction_true (r : TypedRelation colType) :
+    restriction (fun _ => true) r = r := by
+  apply TypedRelation.ext
+  · rfl
+  · simp [restriction]
+
+-- Theorem: Contradictory WHERE is empty
+-- σ_false(R) = ∅
+@[simp, grind =]
+theorem restriction_false_rows (r : TypedRelation colType) :
+    (restriction (fun _ => false) r).rows = ∅ := by
+  simp [restriction]
+
+-- Theorem: Excluded-middle partition of a relation by a predicate
+-- σ_p(R) ∪ σ_¬p(R) = R   (a row is kept by exactly one of p / ¬p)
+@[grind =]
+theorem restriction_partition (p : TypedTuple colType → Bool) (r : TypedRelation colType) :
+    union (restriction p r) (restriction (fun t => !p t) r) = r := by
+  apply TypedRelation.ext
+  · rfl
+  · simp only [union, restriction]
+    ext t
+    simp only [Finset.mem_union, Finset.mem_filter]
+    grind
 
 -- Theorem: Identity for Union
 -- R ∪ ∅ = R
