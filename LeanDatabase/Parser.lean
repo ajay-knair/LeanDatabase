@@ -87,8 +87,17 @@ def checkEquivCore (data: Json) : CoreM Bool := do
 macro "SELECT" " * " "FROM" ident "WHERE" t:term : term =>
     return t
 
+macro:30 t:term "AND" s:term : term =>
+  `($t && $s)
+
+macro:30 t:term "OR" s:term : term =>
+  `($t || $s)
+
+macro:85 "NOT" t:term : term =>
+  `(!$t)
+
 def dataEg := json% {"schema": [{"name": "age", "type": "Int"}, {"name": "isActive", "type": "Bool"}],
-  "first": "SELECT * FROM table WHERE age > 30 && isActive","second": "SELECT * FROM table WHERE age > 30 && isActive && age > 20"}
+  "first": "SELECT * FROM table WHERE age > 30 AND isActive","second": "SELECT * FROM table WHERE age > 30 && isActive && age > 20"}
 
 -- #eval checkEquiv dataEg
 

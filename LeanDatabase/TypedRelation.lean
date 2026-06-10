@@ -275,7 +275,7 @@ theorem union_row (r1 r2 : TypedRelation colType) :
     (union r1 r2).rows = r1.rows ∪ r2.rows := by
   simp only [union]
 
-#check union_row
+-- #check union_row
 
 /-
 omit [(i : Fin n) → DecidableEq (colType i)] [(i : Fin n) → LinearOrder (colType i)] in
