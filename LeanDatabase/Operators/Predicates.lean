@@ -12,36 +12,42 @@ namespace LeanDatabase
 variable {n : Nat} {colType : Fin n → Type}
 variable {α : Type}
 
+/-! These leaf predicates are tagged `@[simp]` so they unfold to their `decide (…)` form, which
+`grind` reasons about natively. That keeps them **transparent to automation**: an autoconverter can
+emit `colEq`/`colLt`/`between`/`inList` directly (no raw `decide`) and `sql_equiv` still discharges
+goals that need the predicate's *meaning* (contradictions, concrete `IN`-lists, value comparisons).
+The compound combinators `pOr`/`pAnd`/`pNot` stay opaque (see `RelationalAlgebra`). -/
+
 /-- `col = v`. -/
-def colEq [DecidableEq α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colEq [DecidableEq α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (proj t = v)
 
 /-- `col <> v`. -/
-def colNe [DecidableEq α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colNe [DecidableEq α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (proj t ≠ v)
 
 /-- `col < v`. -/
-def colLt [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colLt [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (proj t < v)
 
 /-- `col <= v`. -/
-def colLe [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colLe [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (proj t ≤ v)
 
 /-- `col > v`. -/
-def colGt [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colGt [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (v < proj t)
 
 /-- `col >= v`. -/
-def colGe [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
+@[simp] def colGe [LinearOrder α] (proj : TypedTuple colType → α) (v : α) : TypedTuple colType → Bool :=
   fun t => decide (v ≤ proj t)
 
 /-- `col BETWEEN lo AND hi` (inclusive). -/
-def between [LinearOrder α] (proj : TypedTuple colType → α) (lo hi : α) : TypedTuple colType → Bool :=
+@[simp] def between [LinearOrder α] (proj : TypedTuple colType → α) (lo hi : α) : TypedTuple colType → Bool :=
   fun t => decide (lo ≤ proj t ∧ proj t ≤ hi)
 
 /-- `col IN (v₁, …, vₖ)`. -/
-def inList [DecidableEq α] (proj : TypedTuple colType → α) (vs : List α) : TypedTuple colType → Bool :=
+@[simp] def inList [DecidableEq α] (proj : TypedTuple colType → α) (vs : List α) : TypedTuple colType → Bool :=
   fun t => decide (proj t ∈ vs)
 
 /-- `col LIKE '%pat%'` — substring match (the common wildcard case). -/

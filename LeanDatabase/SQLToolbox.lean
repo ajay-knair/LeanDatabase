@@ -34,7 +34,7 @@ This matters because `simp` De-Morgan-splits a compound `WHERE`/`!WHERE` (e.g. `
 `¬a ∨ ¬b`), after which no single `p` survives. Tagged `@[grind]` so `grind` matches the two
 `card`s and discharges the `Q ↔ ¬P` side-condition (pure propositional/Boolean reasoning) itself —
 closing the partition regardless of how `simp` rewrote the predicates. -/
-@[grind] theorem card_filter_add_card_filter_compl {α : Type} [DecidableEq α] (s : Finset α)
+@[grind =] theorem card_filter_add_card_filter_compl {α : Type} [DecidableEq α] (s : Finset α)
     (P Q : α → Prop) [DecidablePred P] [DecidablePred Q] (h : ∀ a, Q a ↔ ¬ P a) :
     (s.filter P).card + (s.filter Q).card = s.card := by
   have hQ : s.filter Q = s.filter (fun a => ¬ P a) := Finset.filter_congr (fun a _ => h a)
