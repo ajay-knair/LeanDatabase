@@ -1,6 +1,6 @@
 import LeanDatabase.SQLEquiv
 
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 11 — "latest row per group", the four canonical SQL forms

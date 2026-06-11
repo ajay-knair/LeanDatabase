@@ -1,6 +1,6 @@
 import LeanDatabase.SQLEquiv
 
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 12 — `SUM(CASE…)` + `HAVING` ≡ `WHERE` + `SUM` + `HAVING`

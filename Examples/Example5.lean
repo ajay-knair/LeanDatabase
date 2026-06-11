@@ -1,5 +1,5 @@
 import LeanDatabase.SQLEquiv
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 5 — `EXISTS` correlated subquery ≡ `IN` subquery (semi-join)

@@ -1,7 +1,8 @@
 import LeanDatabase.RelationalAlgebra
-import LeanDatabase.TypedAggregation
+import LeanDatabase.Operators.Aggregate
 import LeanDatabase.CurriedPredicates
 import LeanDatabase.SQLToolbox
+import LeanDatabase.Operators
 
 open LeanDatabase LeanDatabase.TypedAgg
 
@@ -15,7 +16,7 @@ namespace LeanDatabase.SQLEquiv
 /-- `sql_simp` — the normalisation pass: unfold the `@[simp]` query/operator definitions and
 fire the `@[simp]`-tagged database identities, using local hypotheses (`simp_all`) to discharge
 side-conditions like `t ∈ table`. It puts a goal in a shape `grind` can finish. -/
-macro "sql_simp" : tactic => `(tactic| simp_all)
+macro "sql_simp" : tactic => `(tactic| simp_all [Finset.filter_filter, Finset.image_image])
 
 /-!
 Creating a `sql_equiv` tactic to prove equivalences between SQL queries, by doing `simp` and `grind` using definitions produced and grinding on locals.
@@ -26,17 +27,14 @@ Possible future work: extend this tactic to also be able to disprove using `plau
 -/
 
 macro "sql_equiv" : tactic => `(tactic|
-  first
-    | grind +locals
-    | (sql_simp; grind +locals)
-    -- for tackling Example11: reduce a relation eq to per-row (so `sql_simp` gets the
-    | (apply TypedRelation.ext <;>
-        first
-          | rfl
-          | (refine Finset.filter_congr (fun o ho => ?_); sql_simp <;> grind +locals)
-          | (sql_simp <;> grind +locals))
-    | (sql_simp; done)
-    | fail "sql_equiv failed to prove equivalence"
-)
+  (
+   repeat (first
+     | (apply TypedRelation.ext <;> try rfl)
+     | refine Finset.filter_congr (fun _ _ => ?_)
+     | refine Finset.image_congr (fun _ _ => ?_)
+     | sql_simp)
+   all_goals (first
+     | grind +locals
+     | (apply Finset.ext; sql_simp; grind +locals))))
 
 end LeanDatabase.SQLEquiv

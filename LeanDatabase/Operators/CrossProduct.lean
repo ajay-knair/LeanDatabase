@@ -1,6 +1,15 @@
 import Mathlib
 import LeanDatabase.TypedRelation
 
+/-!
+# Cross product (Cartesian product) of typed relations
+
+`crossProductRel r1 r2` glues every pair of rows into a single tuple over the combined schema
+`Fin.append colType1 colType2`. All the dependent-`Fin.append` plumbing — the `DecidableEq`/
+`ToString` instances for the combined column family, the injectivity of tuple-gluing, and the
+inverse `splitTuple` — lives here, so the join layer can stay schema-agnostic.
+-/
+
 namespace LeanDatabase
 
 variable {n m : Nat}
@@ -193,71 +202,5 @@ theorem mem_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelation colTy
         grind
       · simp_all only [Fin.addCases_right]
         grind
-
-
-/-
-## Join Operation
-This join operation is simply filtering of cross product for given condition
--/
-
-@[simp, grind .]
-def join (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (table1_alias: String := "L") (table2_alias: String := "R")
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) :
-    TypedRelation (Fin.append colType1 colType2) :=
-
-  let product := crossProductRel r1 r2 table1_alias table2_alias
-  {
-    labels := product.labels,
-    rows   := product.rows.filter (fun t => condition t)
-  }
-
--- Theorem: Join Empty Left
--- ∅ ⋈ R = ∅
-theorem join_empty_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String)
-    (h : r1.rows = ∅) :
-    (join r1 r2 a1 a2 condition).rows = ∅ := by
-  grind
-
--- Theorem: Join Empty Right
--- R ⋈ ∅ = ∅
-theorem join_empty_right (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String)
-    (h : r2.rows = ∅) :
-    (join r1 r2 a1 a2 condition).rows = ∅ := by
-  grind
-
--- Theorem: Join Size Upper Bound
--- |R ⋈ S| <= |R| * |S|
--- "A join can never create more rows than the cross product."
-theorem join_card_bound (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 condition).rows.card ≤ r1.rows.card * r2.rows.card := by
-  simp only [join]
-  have h_filter : (Finset.filter (fun t => condition t) (crossProductRel r1 r2 a1 a2).rows).card
-                  ≤ (crossProductRel r1 r2 a1 a2).rows.card := by
-    apply Finset.card_filter_le
-  rw [crossProduct_card] at h_filter
-  exact h_filter
-
--- Theorem: Filter Merge
--- σ_p ( R ⋈ _c S ) = R ⋈ _{c && p} S
--- "Filtering a join result is the same as adding the filter to the join condition."
--- (This is useful: The database can check 'p' while joining, instead of doing a second pass)
-theorem join_filter_merge (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (c : TypedTuple (Fin.append colType1 colType2) → Bool) -- Join Condition
-    (p : TypedTuple (Fin.append colType1 colType2) → Bool) -- Filter Condition
-    (a1 a2 : String) :
-
-    (join r1 r2 a1 a2 c).rows.filter (fun t => p t) =
-    (join r1 r2 a1 a2 (fun t => c t && p t)).rows := by
-  grind
-
--- Theorem: Join is Subset of Cross Product
--- (R ⋈ S) ⊆ (R x S)
-theorem join_subset_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 condition).rows ⊆ (crossProductRel r1 r2 a1 a2).rows := by
-  grind
 
 end LeanDatabase

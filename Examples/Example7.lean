@@ -1,5 +1,5 @@
 import LeanDatabase.SQLEquiv
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 7 — Correlated `COUNT(*)` ≡ GROUP BY + LEFT JOIN + COALESCE

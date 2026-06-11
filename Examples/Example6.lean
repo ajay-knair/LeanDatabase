@@ -1,5 +1,5 @@
 import LeanDatabase.SQLEquiv
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 6 — Partitioned aggregation ≡ summing per-shard partials

@@ -1,5 +1,5 @@
 import LeanDatabase.SQLEquiv
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 8 — `NOT IN` ≡ `NOT EXISTS` (anti-join)

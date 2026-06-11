@@ -1,5 +1,5 @@
 import LeanDatabase.SQLEquiv
-open LeanDatabase LeanDatabase.TypedAgg
+open LeanDatabase
 
 /-!
 # Example 3 — Correlated scalar subqueries ≡ GROUP BY + LEFT JOIN + COALESCE
