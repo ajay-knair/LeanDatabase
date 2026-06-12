@@ -70,15 +70,8 @@ def elabFilter (schema : List (Name × SQLTypeProxy)) (stx : Syntax) : TermElabM
       mkLambdaFVars #[localVar] restExpr
 
 @[reducible]
-def colTypeOfList (l: List SQLTypeProxy) : Fin l.length → Type := match l with
-  | [] => by
-    intro ⟨i, hi⟩
-    simp at hi
-  | t :: rest =>
-    fun ⟨i, hi⟩ =>
-      match i with
-      | 0 => t.type
-      | j+1 => colTypeOfList rest ⟨j, by simp at hi; assumption⟩
+def colTypeOfList (l: List SQLTypeProxy) : Fin l.length → Type :=
+  fun i => (l.get i).type
 
 instance sqlTypeDecEq (l: List SQLTypeProxy) : (i : Fin l.length) → DecidableEq (colTypeOfList l i) := by
   match l with
@@ -143,7 +136,7 @@ elab "egTypeRelMap%" : term => do
   let e ← egTypeRelMap
   return e
 
--- #check egTypeRelMap%
+#check egTypeRelMap%
 
 -- #check egfilter%
 

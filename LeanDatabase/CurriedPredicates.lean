@@ -40,6 +40,8 @@ def restrictionCurried'
     rows   := rel.rows.filter (fun t => applyCurried p t)
   }
 
+#check restrictionCurried'
+
 /-- `p OR q` as a curried predicate. -/
 def orCurried {m : Nat} {cols : Fin m → Type}
     (p q : curriedPred (cols := cols)) : curriedPred (cols := cols) :=
