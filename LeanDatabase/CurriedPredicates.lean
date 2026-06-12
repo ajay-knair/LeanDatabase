@@ -24,8 +24,8 @@ def applyCurried {m : Nat} {cols : Fin m → Type}
     applyCurried p' t'
 
 @[grind .]
-def restrictionCurried (p : curriedPred (cols := colType))
-    (rel : TypedRelation colType) :
+def restrictionCurried (rel : TypedRelation colType)
+    (p : curriedPred (cols := colType)) :
     TypedRelation colType :=
   {
     labels := rel.labels,
@@ -95,15 +95,15 @@ theorem applyCurried_notCurried {m : Nat} {cols : Fin m → Type}
 
 theorem restrictionCurried_card_le
     (p : curriedPred (cols := colType)) (rel : TypedRelation colType) :
-    (restrictionCurried p rel).rows.card ≤ rel.rows.card := by
+    (restrictionCurried rel p).rows.card ≤ rel.rows.card := by
   simp only [restrictionCurried]
   apply Finset.card_filter_le
 
 -- Theorem: Selection over a curried disjunctive predicate is a Union of selections
 @[grind =]
 theorem restriction_orCurried (p q : curriedPred (cols := colType)) (r : TypedRelation colType) :
-    restrictionCurried (orCurried p q) r =
-    union (restrictionCurried p r) (restrictionCurried q r) := by
+    restrictionCurried r (orCurried p q) =
+    union (restrictionCurried r p) (restrictionCurried r q) := by
   simp only [restrictionCurried, union, TypedRelation.mk.injEq, true_and]
   ext x
   simp [applyCurried_orCurried]
@@ -113,9 +113,9 @@ theorem restriction_orCurried (p q : curriedPred (cols := colType)) (r : TypedRe
 @[grind =]
 theorem union_restrictionCurried_disjoint (p q : curriedPred (cols := colType))
     (r : TypedRelation colType) :
-    union (restrictionCurried p r)
-      (restrictionCurried (andCurried q (notCurried p)) r) =
-    restrictionCurried (orCurried p q) r := by
+    union (restrictionCurried r p)
+      (restrictionCurried r (andCurried q (notCurried p))) =
+    restrictionCurried r (orCurried p q) := by
   simp only [restrictionCurried, union, TypedRelation.mk.injEq, true_and]
   ext x
   simp [applyCurried_orCurried, applyCurried_andCurried, applyCurried_notCurried]
@@ -124,16 +124,16 @@ theorem union_restrictionCurried_disjoint (p q : curriedPred (cols := colType))
 -- Theorem: curried version of `restriction_inter_distrib`
 theorem restrictionCurried_inter_distrib (p : curriedPred (cols := colType))
     (r1 r2 : TypedRelation colType) :
-    restrictionCurried p (intersection r1 r2) =
-    intersection (restrictionCurried p r1) (restrictionCurried p r2) := by
+    restrictionCurried (intersection r1 r2) p =
+    intersection (restrictionCurried r1 p) (restrictionCurried r2 p) := by
   simp only [restrictionCurried, intersection, TypedRelation.mk.injEq, true_and]
   grind
 
 -- Theorem: curried version of `restriction_comm`
 theorem restrictionCurried_comm (p1 p2 : curriedPred (cols := colType))
     (r : TypedRelation colType) :
-    restrictionCurried p1 (restrictionCurried p2 r) =
-    restrictionCurried p2 (restrictionCurried p1 r) := by
+    restrictionCurried (restrictionCurried r p2) p1 =
+    restrictionCurried (restrictionCurried r p1) p2 := by
   simp_all only [restrictionCurried]
   ext x
   · grind
@@ -142,7 +142,7 @@ theorem restrictionCurried_comm (p1 p2 : curriedPred (cols := colType))
 -- Theorem: curried version of `restriction_idempotence`
 theorem restrictionCurried_idempotence (p : curriedPred (cols := colType))
     (r : TypedRelation colType) :
-    restrictionCurried p (restrictionCurried p r) = restrictionCurried p r := by
+    restrictionCurried (restrictionCurried r p) p = restrictionCurried r p := by
   simp only [restrictionCurried, TypedRelation.mk.injEq, Finset.filter_eq_self, Finset.mem_filter,
     and_imp, imp_self, implies_true, and_self]
 
@@ -150,8 +150,8 @@ theorem restrictionCurried_idempotence (p : curriedPred (cols := colType))
 @[grind =]
 theorem restrictionCurried_cascade (p1 p2 : curriedPred (cols := colType))
     (r : TypedRelation colType) :
-    restrictionCurried p1 (restrictionCurried p2 r) =
-    restrictionCurried (andCurried p1 p2) r := by
+    restrictionCurried (restrictionCurried r p2) p1 =
+    restrictionCurried r (andCurried p1 p2) := by
   simp only [restrictionCurried, TypedRelation.mk.injEq, true_and]
   ext x
   simp [applyCurried_andCurried]
@@ -160,8 +160,8 @@ theorem restrictionCurried_cascade (p1 p2 : curriedPred (cols := colType))
 -- Theorem: curried version of `restriction_diff_distrib`
 theorem restrictionCurried_diff_distrib (p : curriedPred (cols := colType))
     (r1 r2 : TypedRelation colType) :
-    restrictionCurried p (minus r1 r2) =
-    minus (restrictionCurried p r1) (restrictionCurried p r2) := by
+    restrictionCurried (minus r1 r2) p =
+    minus (restrictionCurried r1 p) (restrictionCurried r2 p) := by
   simp only [restrictionCurried, minus]
   ext x
   · grind
@@ -171,8 +171,8 @@ theorem restrictionCurried_diff_distrib (p : curriedPred (cols := colType))
 @[grind =]
 theorem restrictionCurried_diff_conj_restriction (p q : curriedPred (cols := colType))
     (r : TypedRelation colType) :
-    minus (restrictionCurried p r) (restrictionCurried q r) =
-    restrictionCurried (andCurried p (notCurried q)) r := by
+    minus (restrictionCurried r p) (restrictionCurried r q) =
+    restrictionCurried r (andCurried p (notCurried q)) := by
   simp_all only [minus, restrictionCurried, TypedRelation.mk.injEq, true_and]
   ext x
   simp [applyCurried_andCurried, applyCurried_notCurried]
@@ -180,7 +180,7 @@ theorem restrictionCurried_diff_conj_restriction (p q : curriedPred (cols := col
 
 -- Theorem: curried version of `restriction_empty`
 theorem restrictionCurried_empty (p : curriedPred (cols := colType)) (l : Fin n → String) :
-    (restrictionCurried p (emptyRel l)).rows = ∅ := by
+    (restrictionCurried (emptyRel l) p).rows = ∅ := by
   simp only [restrictionCurried, emptyRel]
   grind
 
@@ -188,7 +188,7 @@ theorem restrictionCurried_empty (p : curriedPred (cols := colType)) (l : Fin n 
 theorem restrictionCurried_monotone (p : curriedPred (cols := colType))
     (r1 r2 : TypedRelation colType) :
     r1.rows ⊆ r2.rows →
-    (restrictionCurried p r1).rows ⊆ (restrictionCurried p r2).rows := by
+    (restrictionCurried r1 p).rows ⊆ (restrictionCurried r2 p).rows := by
   intro h x hx
   simp only [restrictionCurried, Finset.mem_filter] at hx ⊢
   exact ⟨h hx.1, hx.2⟩
@@ -196,8 +196,8 @@ theorem restrictionCurried_monotone (p : curriedPred (cols := colType))
 -- Theorem: curried version of `restriction_push_inter_left`
 theorem restrictionCurried_push_inter_left (p : curriedPred (cols := colType))
     (r1 r2 : TypedRelation colType) :
-    restrictionCurried p (intersection r1 r2) =
-    intersection (restrictionCurried p r1) r2 := by
+    restrictionCurried (intersection r1 r2) p =
+    intersection (restrictionCurried r1 p) r2 := by
   simp only [restrictionCurried, intersection]
   ext x
   · grind

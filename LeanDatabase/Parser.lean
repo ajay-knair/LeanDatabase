@@ -114,7 +114,7 @@ def elabTypeRelMap (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermEl
   let type ← mkAppM ``TypedRelationOfList #[listExpr]
   let filter ← elabFilter schema stx
   withLocalDeclD `typedRel type fun typeRel => do
-    let restExpr ← mkAppM ``restrictionCurried' #[typeRel, filter]
+    let restExpr ← mkAppM ``restrictionCurried #[typeRel, filter]
     mkLambdaFVars #[typeRel] restExpr
 
 def parseTypeRelMap  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
@@ -124,9 +124,9 @@ def parseTypeRelMap  (schemaStr : List (String × String)) (str : String) : Term
 
 def egFilter := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
-def egTypeRelMap := parseTypeRelMap [("age", "Int"), ("isActive", "Bool")] "true"
+def egTypeRelMap := parseTypeRelMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
-#check egTypeRelMap
+-- #check egTypeRelMap
 
 elab "egfilter%" : term => do
   let e ← egFilter
@@ -136,7 +136,7 @@ elab "egTypeRelMap%" : term => do
   let e ← egTypeRelMap
   return e
 
-#check egTypeRelMap%
+-- #check egTypeRelMap%
 
 -- #check egfilter%
 
@@ -147,13 +147,30 @@ example : egfilter% = fun age isActive ↦ (31 ≤  age) && isActive && (20 < ag
 
 def egFilter' := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30"
 
+def egTypeRelMap' := parseTypeRelMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
+
 elab "egfilter%%" : term => do
   let e ← egFilter'
+  return e
+
+elab "egTypeRelMap%%" : term => do
+  let e ← egTypeRelMap'
   return e
 
 -- #check egfilter%%
 
 -- #eval egfilter%% 32 true
+
+-- #check egTypeRelMap%%
+
+def eg1 := egTypeRelMap%
+def eg2 := egTypeRelMap%%
+
+example : eg1 = eg2 := by
+  grind +locals
+
+example : egTypeRelMap% = egTypeRelMap%% := by
+  grind +locals
 
 def checkEquiv (data: Json) : TermElabM Bool := do
     let .ok schema := data.getObjValAs? (List Json) "schema" | throwError "Missing schema"

@@ -73,7 +73,7 @@ def restriction (predicate : TypedTuple colType → Bool) (rel : TypedListRelati
     rows   := rel.rows.filter (fun t => predicate t)
   }
 
-def restrictionCurried (p: curriedPred (cols := colType)) (rel: TypedListRelation colType) : TypedListRelation colType :=
+def restrictionCurried (rel: TypedListRelation colType) (p: curriedPred (cols := colType)) : TypedListRelation colType :=
 {
   labels := rel.labels,
   rows := rel.rows.filter (fun t => applyCurried p t)
@@ -187,7 +187,7 @@ theorem restriction_length_le
 omit [(i : Fin n) → DecidableEq (colType i)] [(i : Fin n) → LinearOrder (colType i)] in
 theorem restrictionCurried_card_le
     (p : curriedPred (cols := colType))(rel : TypedListRelation colType) :
-    (restrictionCurried p rel).rows.length ≤ rel.rows.length:= by
+    (restrictionCurried rel p).rows.length ≤ rel.rows.length:= by
   simp only [restrictionCurried, List.length_filter_le]
 
 end ListRelation
