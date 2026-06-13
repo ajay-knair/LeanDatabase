@@ -63,16 +63,17 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
 #check withLetDecl
 #check mkLetFVars
 
-def elabFilter (schemaName: Name) (schema : List (Name × SQLTypeProxy)) (stx : Syntax) : TermElabM Expr := do
+def withColumnVars (schemaName: Name) (schema : List (Name × SQLTypeProxy))  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
   match schema with
-  | [] => elabTermEnsuringType stx (mkConst ``Bool)
+  | [] => k x
   | (name, colType) :: rest => do
     let colTypeExpr := typeExpr colType
     let fullName := schemaName ++ name
     withLocalDeclD fullName colTypeExpr fun localVar => do
       withLetDecl name colTypeExpr localVar fun localVar' => do
-        let restExpr ← elabFilter schemaName rest stx
+        let restExpr ← withColumnVars schemaName rest k x
         mkLambdaFVars #[localVar] <| ← mkLetFVars #[localVar'] restExpr
+
 
 @[reducible]
 def colTypeOfList (l: List SQLTypeProxy) : Fin l.length → Type :=
@@ -108,24 +109,41 @@ def sqlTypeListExpr (l: List SQLTypeProxy) : MetaM Expr := do
 -- #check mkAppOptM
 -- #check TypedRelationOfList
 
+def withSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy))) (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
+  match schemas with
+  | [] => k x
+  | (schemaName, schema) :: rest => do
+    let colTypes := schema.map (fun (_, colType) => colType)
+    let listExpr ← sqlTypeListExpr colTypes
+    let type ← mkAppM ``TypedRelationOfList #[listExpr]
+    withLocalDeclD schemaName type fun typeRel => do
+      let inner ← withColumnVars schemaName schema (fun x => withSchemasVars rest k x) x
+      mkLambdaFVars #[typeRel] inner
+
+def elabFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx : Syntax) : TermElabM Expr := do
+    withSchemasVars schemas (fun stx => elabTermEnsuringType stx (mkConst ``Bool)) stx
+
+
 def parseFilter (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
-  elabFilter `schema schema stx
+  elabFilter [(`schema, schema)] stx
 
-def elabTypeRelMap (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
+-- This is the "WHERE" part of a SQL query, which is a function from a TypedRelation to a TypedRelation. This is to be applied to the database, which may be a single schema or built from multiple schemas.
+def elabTypeRelMap (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
   let colTypes := schema.map (fun (_, colType) => colType)
   let listExpr ← sqlTypeListExpr colTypes
   let type ← mkAppM ``TypedRelationOfList #[listExpr]
-  let filter ← elabFilter `schema schema stx
   withLocalDeclD `typedRel type fun typeRel => do
+    let filter ← elabFilter [(schemaName, schema)] stx
+    let filter ← mkAppM' filter #[typeRel]
     let restExpr ← mkAppM ``restrictionCurried #[typeRel, filter]
     mkLambdaFVars #[typeRel] restExpr
 
 def parseTypeRelMap  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
-  elabTypeRelMap schema stx
+  elabTypeRelMap `schema schema stx
 
 def egFilter := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
@@ -147,7 +165,7 @@ elab "egTypeRelMap%" : term => do
 
 -- #eval egfilter% 32 true
 
-example : egfilter% = fun age isActive ↦ (31 ≤  age) && isActive && (20 < age)  := by
+example : egfilter% = fun _ age isActive ↦ (31 ≤  age) && isActive && (20 < age)  := by
   grind
 
 def egFilter' := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30"
