@@ -86,6 +86,7 @@ def withFunColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) 
     let funcType ← mkArrow relType colTypeExpr
     withLetDecl funcName funcType projExpr fun funcVar => do
       let colExpr ← mkAppM' funcVar #[relVar]
+      let colExpr ← reduce colExpr
       withLetDecl fullName colTypeExpr colExpr fun localVar => do
         withLetDecl name colTypeExpr localVar fun localVar' => do
           let restExpr ← withFunColumnVars schemaName rest relVar k x
