@@ -137,9 +137,9 @@ def withSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy))) (k : 
     let colTypes := schema.map (fun (_, colType) => colType)
     let listExpr ← sqlTypeListExpr colTypes
     let type ← mkAppM ``TypedRelationOfList #[listExpr]
-    withLocalDeclD schemaName type fun typeRel => do
+    withLocalDeclD schemaName type fun typedTuple => do
       let inner ← withColumnVars schemaName schema (fun x => withSchemasVars rest k x) x
-      mkLambdaFVars #[typeRel] inner
+      mkLambdaFVars #[typedTuple] inner
 
 def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy))) (relVar : Expr) (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
   match schemas with
@@ -150,9 +150,9 @@ def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy))) (r
     -- let test : Fin 3 := 2
     -- let e := toExpr test
     let type ← mkAppM ``TypedTupleOfList #[listExpr]
-    withLocalDeclD schemaName type fun typeRel => do
+    withLocalDeclD schemaName type fun typedTuple => do
       let inner ← withFunColumnVars schemaName schema relVar (fun x => withFunSchemasVars rest relVar k x) x
-      mkLambdaFVars #[typeRel] inner
+      mkLambdaFVars #[typedTuple] inner
 
 -- #eval List.finRange 3
 
@@ -170,14 +170,19 @@ def elabTypeRelMap (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (s
   let colTypes := schema.map (fun (_, colType) => colType)
   let listExpr ← sqlTypeListExpr colTypes
   let type ← mkAppM ``TypedTupleOfList #[listExpr]
-  withLocalDeclD `typedRel type fun typeRel => do
+  let colExprs ← List.finRange colTypes.length |>.mapM fun i => do
+      let index := toExpr i
+      withLocalDeclD `typedTuple type fun typedTuple => do
+        let value ← mkAppM' typedTuple #[index]
+        mkLambdaFVars #[typedTuple] value
+  withLocalDeclD `typedRel type fun typedTuple => do
     -- let filter ← elabFilter [(schemaName, schema)] stx
-    -- let filter ← mkAppM' filter #[typeRel]
-    -- let restExpr ← mkAppM ``restrictionCurried #[typeRel, filter]
-    let m ← (withFunColumnVars schemaName schema typeRel fun stx => do
+    -- let filter ← mkAppM' filter #[typedTuple]
+    -- let restExpr ← mkAppM ``restrictionCurried #[typedTuple, filter]
+    let m ← (withFunColumnVars schemaName schema typedTuple fun stx => do
       elabTermEnsuringType stx (mkConst ``Bool)) stx
-    -- logInfo m!"Parsed filter expression as: {← ppExpr m}"
-    mkLambdaFVars #[typeRel] m
+    let m ← mkAppM' m colExprs.toArray
+    whnf <| ← mkLambdaFVars #[typedTuple] m
 
 def parseTypeRelMap  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
