@@ -15,6 +15,8 @@ associativity (those would loop), and no two rules sharing a left-hand side.
 
 namespace LeanDatabase
 
+variable {n : Nat} {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
+
 /-- The empty relation has no rows. Exposed as a `@[simp]` rewrite (without tagging `emptyRel`
 itself, which lives in `TypedRelation`) so `sql_equiv` can collapse `∅`-table queries — e.g.
 `LEFT JOIN` against an empty table. -/
@@ -40,6 +42,13 @@ closing the partition regardless of how `simp` rewrote the predicates. -/
   have hQ : s.filter Q = s.filter (fun a => ¬ P a) := Finset.filter_congr (fun a _ => h a)
   rw [hQ]
   exact Finset.card_filter_add_card_filter_not _
+
+/-- **`WHERE` congruence**: two `restriction`s are equal when their predicates agree on every row of
+the input. The bridge for "the two `WHERE` predicates coincide on the actual data" hypotheses (e.g.
+two different `LIKE` patterns that happen to match the same rows of this table). -/
+theorem restriction_congr (p q : TypedTuple colType → Bool) (R : TypedRelation colType)
+    (h : ∀ t ∈ R.rows, p t = q t) : restriction p R = restriction q R := by
+  grind only [= restriction.eq_1, Finset.filter_congr]
 
 
 attribute [grind =]

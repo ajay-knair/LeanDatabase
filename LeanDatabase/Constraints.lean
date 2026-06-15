@@ -59,7 +59,7 @@ the **coarser** one, so it can't re-match its own result. With the FD in context
 `φ` (i.e. `g = φ ∘ f` on the rows and `φ` is injective on the `f`-values). This is the honest data
 fact behind `COUNT(DISTINCT name)` ≡ `COUNT(DISTINCT code)` (a name↔code bijection) and
 `COUNT(DISTINCT key) = COUNT(*)`-style rewrites. -/
-@[grind .] theorem relCountDistinct_eq_of_factor {α β : Type} [DecidableEq α] [DecidableEq β]
+theorem relCountDistinct_eq_of_factor {α β : Type} [DecidableEq α] [DecidableEq β]
     (f : TypedTuple colType → α) (g : TypedTuple colType → β) (R : TypedRelation colType) (φ : α → β)
     (hφ : ∀ a ∈ R.rows, g a = φ (f a))
     (hinj : Set.InjOn φ ↑(R.rows.image f)) :
@@ -72,7 +72,7 @@ fact behind `COUNT(DISTINCT name)` ≡ `COUNT(DISTINCT code)` (a name↔code bij
 partition on `s` (`f a = f b ↔ g a = g b` for all rows), they have equally many distinct values.
 Stated at the `card (image …)` level — the shape `relCountDistinct` unfolds to — and tagged `@[grind]`
 so `sql_equiv` closes `COUNT(DISTINCT a) = COUNT(DISTINCT b)` from the bijection hypothesis alone. -/
-@[grind .] theorem card_image_eq_of_fiber {α γ δ : Type} [DecidableEq γ] [DecidableEq δ]
+theorem card_image_eq_of_fiber {α γ δ : Type} [DecidableEq γ] [DecidableEq δ]
     (s : Finset α) (f : α → γ) (g : α → δ)
     (h : ∀ a ∈ s, ∀ b ∈ s, f a = f b ↔ g a = g b) :
     (s.image f).card = (s.image g).card := by

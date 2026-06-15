@@ -42,6 +42,22 @@ theorem select_card_le (newLabels : Fin p → String)
     select l2 g (select l1 f rel) = select l2 (fun t => g (f t)) rel := by
   simp only [select, Finset.image_image, Function.comp_def]
 
+/-- **`SELECT` congruence**: two computed `SELECT`s agree when their row-maps agree on every row of
+the input. The bridge for data-hypothesis rewrites (e.g. projecting a column from either side of a
+join when a functional dependency makes the two sides agree). -/
+theorem select_congr (newLabels : Fin p → String)
+    (f g : TypedTuple colType → TypedTuple outCT) (rel : TypedRelation colType)
+    (h : ∀ t ∈ rel.rows, f t = g t) : select newLabels f rel = select newLabels g rel := by
+  unfold select
+  congr 1
+  exact Finset.image_congr (fun t ht => h t ht)
+
+/-- **`SELECT` distributes over `UNION`**: `select f (R ∪ S) = select f R ∪ select f S`. -/
+@[grind =] theorem select_union (newLabels : Fin p → String)
+    (f : TypedTuple colType → TypedTuple outCT) (r s : TypedRelation colType) :
+    select newLabels f (union r s) = union (select newLabels f r) (select newLabels f s) := by
+  apply TypedRelation.ext <;> simp [select, union, Finset.image_union]
+
 /-- A computed `SELECT` over no rows produces no rows. -/
 @[simp, grind =] theorem select_empty (newLabels : Fin p → String)
     (f : TypedTuple colType → TypedTuple outCT) (l : Fin n → String) :
