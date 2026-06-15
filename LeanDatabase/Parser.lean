@@ -70,7 +70,7 @@ def withLetColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) 
   | ((name, colType), projExpr) :: rest => do
     let colTypeExpr := typeExpr colType
     let fullName := schemaName ++ name
-    let funcName := fullName ++ `func
+    let funcName := fullName ++ `proj
     let relType ← inferType typedTupleVar
     let funcType ← mkArrow relType colTypeExpr
     withLetDecl funcName funcType projExpr fun funcVar => do
@@ -120,7 +120,7 @@ def sqlTypeListExpr (l: List SQLTypeProxy) : MetaM Expr := do
 -- #check TypedTupleOfList
 
 
-def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
+def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
   match schemas with
   | [] => k x
   | (schemaName, schema) :: rest => do
@@ -133,24 +133,57 @@ def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
           let value ← mkAppM' typedTuple #[index]
           mkLambdaFVars #[typedTuple] value
     let schemaExprs := schema.zip colExprs
-    withLocalDeclD schemaName type fun typedTuple => do
-      let inner ← withLetColumnVars schemaName schemaExprs typedTuple (withFunSchemasVars rest k) x
+    withLocalDeclD (schemaName ++ `coords) type fun typedTuple => do
+      let inner ← withLetColumnVars schemaName schemaExprs typedTuple (withSchemasTupleVars rest k) x
       mkLambdaFVars #[typedTuple] inner
+
+def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List Expr →  TermElabM Expr)  : TermElabM Expr := do
+  match schemas with
+  | [] => k []
+  | (schemaName, schema) :: rest => do
+    let colTypes := schema.map (fun (_, colType) => colType)
+    let listExpr ← sqlTypeListExpr colTypes
+    let type ← mkAppM ``TypedRelationOfList #[listExpr]
+    withLocalDeclD schemaName type fun typedRel => do
+      let inner ← withSchemasRelVars rest ((fun l ↦ k (typedRel :: l)))
+      mkLambdaFVars #[typedRel] inner
 
 -- #eval List.finRange 3
 
 -- This is the "WHERE" part of a SQL query, which is a function from a TypedRelation to a TypedRelation. This is to be applied to the database, which may be a single schema or built from multiple schemas.
 def elabTypedTupleMap (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
-  withFunSchemasVars [(schemaName, schema)] (fun stx => elabTermEnsuringType stx (mkConst ``Bool)) stx
+  withSchemasTupleVars [(schemaName, schema)] (fun stx => elabTermEnsuringType stx (mkConst ``Bool)) stx
 
 def parseTypedTupleMap  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
   elabTypedTupleMap `schema schema stx
 
+-- #check selection
+
+def elabTypedRelMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
+  withSchemasRelVars schemas fun relVars => do
+    let [relVar] := relVars | throwError "Expected exactly one relation variable"
+    let [(schemaName, schema)] := schemas | throwError "Expected exactly one schema"
+    let filter ← elabTypedTupleMap schemaName schema stx
+    -- logInfo m!"Elaborated filter type: {← ppExpr <| ← inferType filter}"
+    mkAppM ``selection #[filter, relVar]
+  -- logInfo m!"Elaborated relation map type: {← ppExpr <| ← inferType outer}"
+
+def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (str : String) : TermElabM Expr := do
+  let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
+  let schemas := schemasStr.map (fun (schemaName, schema) =>
+    let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
+    (schemaName.toName, schema'))
+  elabTypedRelMap schemas stx
+
 def egTypedTupleMap := parseTypedTupleMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
 def egTypedTupleMap' := parseTypedTupleMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
+
+def egTypedRelMap := parseTypedRelMap [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive"
+
+def egTypedRelMap' := parseTypedRelMap [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive && age > 20"
 
 elab "egTypedTupleMap%" : term => do
   let e ← egTypedTupleMap
@@ -159,6 +192,16 @@ elab "egTypedTupleMap%" : term => do
 elab "egTypedTupleMap%%" : term => do
   let e ← egTypedTupleMap'
   return e
+
+elab "egTypedRelMap%" : term => do
+  let e ← egTypedRelMap
+  return e
+
+elab "egTypedRelMap%%" : term => do
+  let e ← egTypedRelMap'
+  return e
+
+-- #check egTypedRelMap%
 
 -- #check egTypedTupleMap%%
 
@@ -172,6 +215,9 @@ set_option pp.funBinderTypes true in
 example : egTypedTupleMap% = egTypedTupleMap%% := by
   grind
 
+set_option pp.funBinderTypes true in
+example : egTypedRelMap% = egTypedRelMap%% := by
+  grind
 
 def checkEquiv (data: Json) : TermElabM Bool := do
     let .ok schema := data.getObjValAs? (List Json) "schema" | throwError "Missing schema"
