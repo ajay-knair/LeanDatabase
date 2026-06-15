@@ -188,6 +188,41 @@ def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (s
     (schemaName.toName, schema'))
   elabTypedRelMap schemas stx
 
+section product
+
+variable {n m : Nat}
+variable {colType1 : Fin n → Type} [∀ i, DecidableEq (colType1 i)]
+variable {colType2 : Fin m → Type} [∀ i, DecidableEq (colType2 i)]
+
+abbrev colTypeOfProduct (colType1: Fin n → Type) (colType2: Fin m → Type) : Fin (n + m) →  Type :=
+  fun ⟨i, h⟩ =>
+    if h : i < n then
+      colType1 ⟨i, h⟩
+    else
+      colType2 ⟨i - n, by grind⟩
+
+def prodTypedTuple (t1 : TypedTuple colType1) (t2 : TypedTuple colType2) :
+    TypedTuple (colTypeOfProduct colType1 colType2) := fun ⟨i, h⟩ => by
+  if h : i < n then
+    simp [colTypeOfProduct, h]
+    exact t1 ⟨i, h⟩
+  else
+    simp [colTypeOfProduct, h]
+    exact t2 ⟨i - n, by grind⟩
+
+def leftProj (t : TypedTuple (colTypeOfProduct colType1 colType2)) : TypedTuple colType1 := fun ⟨i, h⟩ => by
+ let t' := t ⟨i, by grind⟩
+ simp [colTypeOfProduct, h] at t'
+ exact t'
+
+def rightProj (t : TypedTuple (colTypeOfProduct colType1 colType2)) : TypedTuple colType2 := fun ⟨i, h⟩ => by
+ let t' := t ⟨i + n, by grind⟩
+ simp [colTypeOfProduct] at t'
+ exact t'
+
+
+end product
+
 /--
 This is the main entry point for parsing a full SQL query, which includes the "SELECT", "FROM", and "WHERE" clauses. For simplicity, we only handle "SELECT *" and a single table in the "FROM" clause, but this can be extended in the future. The output is an expression representing the filter to be applied to the database, along with the schema of the table returned.
 -/
