@@ -56,8 +56,17 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
   else if s.startsWith "int" then .int
   else if s.startsWith "bool" then .bool
   else if s.startsWith "float" then .float
+  else if s.startsWith "double" then .float
+  else if s.startsWith "real" then .float
+  else if s.startsWith "number" then .int
+  else if s.startsWith "numeric" then .int
+  else if s.startsWith "decimal" then .int
+  else if s.startsWith "bigint" then .int
+  else if s.startsWith "smallint" then .int
   else if s.startsWith "text" then .string
   else if s.startsWith "char" then .string
+  else if s.startsWith "date" then .string
+  else if s.startsWith "timestamp" then .string
   else .string -- default to string for unrecognized types
 
 #check withLetDecl
