@@ -2,6 +2,7 @@ import Lean
 import Mathlib
 import LeanDatabase.Schema
 import LeanDatabase.SQLToolbox
+import LeanDatabase.Operators.CrossProduct
 
 open Lean Meta Elab Term
 
@@ -22,7 +23,7 @@ syntax term "AS" ident : sql_col
 syntax sql_col,* : sql_cols
 
 syntax ident,* : sql_from
-syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? : sql_query
+syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? (";")? : sql_query
 
 inductive SQLTypeProxy where
   | int
@@ -137,7 +138,7 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
       let inner ← withLetColumnVars schemaName schemaExprs typedTuple (withSchemasTupleVars rest k) x
       mkLambdaFVars #[typedTuple] inner
 
-def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List Expr →  TermElabM Expr)  : TermElabM Expr := do
+def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM Expr)  : TermElabM Expr := do
   match schemas with
   | [] => k []
   | (schemaName, schema) :: rest => do
@@ -145,7 +146,7 @@ def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
     let listExpr ← sqlTypeListExpr colTypes
     let type ← mkAppM ``TypedRelationOfList #[listExpr]
     withLocalDeclD schemaName type fun typedRel => do
-      let inner ← withSchemasRelVars rest ((fun l ↦ k (typedRel :: l)))
+      let inner ← withSchemasRelVars rest ((fun l ↦ k ((typedRel, schemaName, schema) :: l)))
       mkLambdaFVars #[typedRel] inner
 
 -- #eval List.finRange 3
@@ -163,7 +164,7 @@ def parseTypedTupleFilter  (schemaStr : List (String × String)) (str : String) 
 
 def elabTypedRelMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
   withSchemasRelVars schemas fun relVars => do
-    let [relVar] := relVars | throwError "Expected exactly one relation variable"
+    let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
     let [(schemaName, schema)] := schemas | throwError "Expected exactly one schema"
     let filter ← elabTypedTupleFilter schemaName schema stx
     -- logInfo m!"Elaborated filter type: {← ppExpr <| ← inferType filter}"
@@ -176,6 +177,34 @@ def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (s
     let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
     (schemaName.toName, schema'))
   elabTypedRelMap schemas stx
+
+/--
+This is the main entry point for parsing a full SQL query, which includes the "SELECT", "FROM", and "WHERE" clauses. For simplicity, we only handle "SELECT *" and a single table in the "FROM" clause, but this can be extended in the future. The output is an expression representing the filter to be applied to the database, along with the schema of the table returned.
+-/
+def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
+    TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+  match stx with
+  | `(sql_query| SELECT * FROM $db:ident WHERE $filter;) => do
+    let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
+    let filterExpr ← elabTypedRelMap [(schemaName, schema)] filter
+    pure (filterExpr, schema)
+  | `(sql_query| SELECT * FROM $dbs:ident,*;) => do
+    let selectedDbs := dbs.getElems.map (·.getId) |>.toList
+    let selectedSchemas ←  selectedDbs.mapM fun db => do
+      let .some (schemaName, schema) :=
+      schemas.findSome? (fun (name, schema) => if name == db then some (name, schema) else none) | throwError s!"Unknown table {db}"
+      pure (schemaName, schema)
+    let productRel ← withSchemasRelVars selectedSchemas fun relVars => do
+      let (head, name, _) :: tail := relVars | throwError "Expected at least one table in FROM clause"
+      let tail := tail.map (fun (relVar, _) => relVar)
+      tail.foldlM (fun rel acc => do
+        let combinedRel ← mkAppM ``crossProductRel #[acc, rel, toExpr name.toString, toExpr "tail"]
+        reduce combinedRel) head
+    let combinedSchema := selectedSchemas.foldl (fun acc (_, schema) => acc ++ schema) []
+    pure (productRel, combinedSchema)
+  | _ => throwError "Unexpected syntax for SQL query"
+
+-- Examples
 
 def egTypedTupleFilter := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
@@ -209,7 +238,7 @@ def eg1 := egTypedTupleFilter%
 def eg2 := egTypedTupleFilter%%
 
 example : eg1 = eg2 := by
-  grind +locals
+  grind only [eg1, eg2, #2ec2, #99da]
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by
