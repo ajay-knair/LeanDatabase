@@ -147,7 +147,7 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
       let inner ← withLetColumnVars schemaName schemaExprs typedTuple (withSchemasTupleVars rest k) x
       mkLambdaFVars #[typedTuple] inner
 
-def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM Expr)  : TermElabM Expr := do
+def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM α)  : TermElabM α := do
   match schemas with
   | [] => k []
   | (schemaName, schema) :: rest => do
@@ -155,8 +155,7 @@ def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
     let listExpr ← sqlTypeListExpr colTypes
     let type ← mkAppM ``TypedRelationOfList #[listExpr]
     withLocalDeclD schemaName type fun typedRel => do
-      let inner ← withSchemasRelVars rest ((fun l ↦ k ((typedRel, schemaName, schema) :: l)))
-      mkLambdaFVars #[typedRel] inner
+      withSchemasRelVars rest ((fun l ↦ k ((typedRel, schemaName, schema) :: l)))
 
 -- #eval List.finRange 3
 
@@ -177,7 +176,9 @@ def elabTypedRelMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx:
     let [(schemaName, schema)] := schemas | throwError "Expected exactly one schema"
     let filter ← elabTypedTupleFilter schemaName schema stx
     -- logInfo m!"Elaborated filter type: {← ppExpr <| ← inferType filter}"
-    mkAppM ``selection #[filter, relVar]
+    let e ← mkAppM ``selection #[filter, relVar]
+    let vars := relVars.map (fun (relVar, _, _) => relVar)
+    mkLambdaFVars vars.toArray e
   -- logInfo m!"Elaborated relation map type: {← ppExpr <| ← inferType outer}"
 
 def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (str : String) : TermElabM Expr := do
