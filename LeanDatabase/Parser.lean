@@ -7,19 +7,22 @@ open Lean Meta Elab Term
 
 namespace LeanDatabase
 
-/--
+/-!
 # Parser for SQL-like filter expressions
 
-Since SQL types are all Lean constants, we represent them by names.
 -/
-def elabFilter' (schema : List (Name × Name)) (stx : Syntax) : TermElabM Expr := do
-  match schema with
-  | [] => elabTermEnsuringType stx (mkConst ``Bool)
-  | (name, colType) :: rest => do
-    let colTypeExpr ←  Term.mkConst colType
-    withLocalDeclD name colTypeExpr fun localVar => do
-      let restExpr ← elabFilter' rest stx
-      mkLambdaFVars #[localVar] restExpr
+
+declare_syntax_cat sql_query
+declare_syntax_cat sql_from
+declare_syntax_cat sql_cols
+syntax "*" : sql_cols
+declare_syntax_cat sql_col
+syntax ident : sql_col
+syntax term "AS" ident : sql_col
+syntax sql_col,* : sql_cols
+
+syntax ident,* : sql_from
+syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? : sql_query
 
 inductive SQLTypeProxy where
   | int
@@ -60,22 +63,8 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
   else if s.startsWith "char" then .string
   else .string -- default to string for unrecognized types
 
-#check withLetDecl
-#check mkLetFVars
 
-def withColumnVars (schemaName: Name) (schema : List (Name × SQLTypeProxy))  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
-  match schema with
-  | [] => k x
-  | (name, colType) :: rest => do
-    let colTypeExpr := typeExpr colType
-    let fullName := schemaName ++ name
-    withLocalDeclD fullName colTypeExpr fun localVar => do
-      withLetDecl name colTypeExpr localVar fun localVar' => do
-        let restExpr ← withColumnVars schemaName rest k x
-        mkLambdaFVars #[localVar] <| ← mkLetFVars #[localVar'] restExpr
-
-
-def withFunColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr)  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
+def withLetColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr)  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
   match schema with
   | [] => k x
   | ((name, colType), projExpr) :: rest => do
@@ -89,9 +78,8 @@ def withFunColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) 
       let colExpr ← reduce colExpr
       withLetDecl fullName colTypeExpr colExpr fun localVar => do
         withLetDecl name colTypeExpr localVar fun localVar' => do
-          let restExpr ← withFunColumnVars schemaName rest typedTupleVar k x
+          let restExpr ← withLetColumnVars schemaName rest typedTupleVar k x
           mkLetFVars #[funcVar, localVar, localVar'] restExpr
-
 
 @[reducible]
 def colTypeOfList (l: List SQLTypeProxy) : Fin l.length → Type :=
@@ -131,16 +119,6 @@ def sqlTypeListExpr (l: List SQLTypeProxy) : MetaM Expr := do
 -- #check mkAppOptM
 -- #check TypedTupleOfList
 
-def withSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy))) (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
-  match schemas with
-  | [] => k x
-  | (schemaName, schema) :: rest => do
-    let colTypes := schema.map (fun (_, colType) => colType)
-    let listExpr ← sqlTypeListExpr colTypes
-    let type ← mkAppM ``TypedRelationOfList #[listExpr]
-    withLocalDeclD schemaName type fun typedTuple => do
-      let inner ← withColumnVars schemaName schema (fun x => withSchemasVars rest k x) x
-      mkLambdaFVars #[typedTuple] inner
 
 def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : α →  TermElabM Expr) (x : α) : TermElabM Expr := do
   match schemas with
@@ -156,19 +134,10 @@ def withFunSchemasVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
           mkLambdaFVars #[typedTuple] value
     let schemaExprs := schema.zip colExprs
     withLocalDeclD schemaName type fun typedTuple => do
-      let inner ← withFunColumnVars schemaName schemaExprs typedTuple (withFunSchemasVars rest k) x
+      let inner ← withLetColumnVars schemaName schemaExprs typedTuple (withFunSchemasVars rest k) x
       mkLambdaFVars #[typedTuple] inner
 
 -- #eval List.finRange 3
-
-def elabFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx : Syntax)  : TermElabM Expr := do
-    withSchemasVars schemas (fun stx => elabTermEnsuringType stx (mkConst ``Bool)) stx
-
-
-def parseFilter (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
-  let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
-  let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
-  elabFilter [(`schema, schema)] stx
 
 -- This is the "WHERE" part of a SQL query, which is a function from a TypedRelation to a TypedRelation. This is to be applied to the database, which may be a single schema or built from multiple schemas.
 def elabTypedTupleMap (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
@@ -179,44 +148,17 @@ def parseTypedTupleMap  (schemaStr : List (String × String)) (str : String) : T
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
   elabTypedTupleMap `schema schema stx
 
-def egFilter := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
-
 def egTypedTupleMap := parseTypedTupleMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
 
--- #check egTypedTupleMap
-
-elab "egfilter%" : term => do
-  let e ← egFilter
-  return e
+def egTypedTupleMap' := parseTypedTupleMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
 
 elab "egTypedTupleMap%" : term => do
   let e ← egTypedTupleMap
   return e
 
--- #check egTypedTupleMap%
-
--- #check egfilter%
-
--- #eval egfilter% 32 true
-
-example : egfilter% = fun _ age isActive ↦ (31 ≤  age) && isActive && (20 < age)  := by
-  grind
-
-def egFilter' := parseFilter [("age", "Int"), ("isActive", "Bool")] "age > 30"
-
-def egTypedTupleMap' := parseTypedTupleMap [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
-
-elab "egfilter%%" : term => do
-  let e ← egFilter'
-  return e
-
 elab "egTypedTupleMap%%" : term => do
   let e ← egTypedTupleMap'
   return e
-
--- #check egfilter%%
-
--- #eval egfilter%% 32 true
 
 -- #check egTypedTupleMap%%
 
@@ -239,8 +181,8 @@ def checkEquiv (data: Json) : TermElabM Bool := do
       pure (name, sqlType)
     let .ok firstStr := data.getObjValAs? String "first" | throwError "Missing first expression"
     let .ok secondStr := data.getObjValAs? String "second" | throwError "Missing second expression"
-    let firstExpr ← parseFilter schemaStr firstStr
-    let secondExpr ← parseFilter schemaStr secondStr
+    let firstExpr ← parseTypedTupleMap schemaStr firstStr
+    let secondExpr ← parseTypedTupleMap schemaStr secondStr
     let goalType ←  mkEq firstExpr secondExpr
     -- logInfo m!"Checking equivalence of:\n  {firstStr}\n  {secondStr}\nParsed as:\n  {← ppExpr firstExpr}\n  {← ppExpr secondExpr}; Goal: {← ppExpr goalType}"
     let mvar ← mkFreshExprMVar goalType
@@ -272,6 +214,5 @@ def dataEg := json% {"schema": [{"name": "age", "type": "Int"}, {"name": "isActi
   "first": "SELECT * FROM table WHERE age > 30 AND isActive","second": "SELECT * FROM table WHERE age > 30 && isActive && age > 20"}
 
 -- #eval checkEquiv dataEg
-
 
 end LeanDatabase

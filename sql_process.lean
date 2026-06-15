@@ -43,8 +43,6 @@ unsafe def main (_ : List String) : IO UInt32 := do
   let env ←
     importModules (loadExts := true) #[
     {module := `Mathlib},
-    {module:= `LeanDatabase.Parser},
-    {module:= `LeanDatabase.GrindToolbox},
     {module:= `LeanDatabase}] {}
   let stdin ←  IO.getStdin
   let stdout ← IO.getStdout

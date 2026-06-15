@@ -9,3 +9,4 @@ import LeanDatabase.Operators.CrossProduct
 import LeanDatabase.Operators.Join
 import LeanDatabase.Schema
 import LeanDatabase.Operators
+import LeanDatabase.Parser
