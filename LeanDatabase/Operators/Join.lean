@@ -85,6 +85,62 @@ theorem join_subset_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelati
     (join r1 r2 a1 a2 condition).rows ⊆ (crossProductRel r1 r2 a1 a2).rows := by
   grind
 
+-- Theorem: Join Commutativity (up to the schema half-swap)
+-- (R ⋈_c S)  ≅  (S ⋈_{c∘swap} R)
+-- "Swapping the join operands gives the same rows once you swap the two schema halves
+--  (`swapAppend`) and transport the condition through that swap."  The two sides have *different*
+--  dependent schemas (`Fin.append c1 c2` vs `Fin.append c2 c1`), so equality is stated on `.rows`
+--  modulo `swapAppend`.
+theorem join_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (cond : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
+    (join r1 r2 a1 a2 cond).rows.image swapAppend
+      = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows := by
+  ext u
+  simp only [join, Finset.mem_image, Finset.mem_filter]
+  constructor
+  · rintro ⟨t, ⟨htmem, htcond⟩, rfl⟩
+    rw [mem_crossProduct] at htmem
+    rw [mem_crossProduct, splitTuple_swapAppend, swapAppend_swapAppend]
+    exact ⟨⟨htmem.2, htmem.1⟩, htcond⟩
+  · rintro ⟨humem, hucond⟩
+    rw [mem_crossProduct] at humem
+    refine ⟨swapAppend u, ⟨?_, hucond⟩, swapAppend_swapAppend u⟩
+    rw [mem_crossProduct, splitTuple_swapAppend]; exact ⟨humem.2, humem.1⟩
+
+-- Theorem: Join condition congruence — pointwise-equal conditions give the same join.
+-- (Closes `ON a=b` vs `ON b=a` once the two conditions are shown equal, e.g. by `eq_comm`.)
+theorem join_cond_congr (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+    (c c' : TypedTuple (Fin.append colType1 colType2) → Bool) (h : ∀ t, c t = c' t) :
+    join r1 r2 a1 a2 c = join r1 r2 a1 a2 c' := by
+  have : c = c' := funext h; rw [this]
+
+-- Theorem: first-order **join-order swap under a projection**. Projecting a join and projecting the
+-- operand-swapped join (with condition + projection transported through `swapAppend`) give the same
+-- rows — a directly usable corollary of `join_comm` for "same query, operands swapped, then SELECT".
+theorem join_comm_image {γ : Type} [DecidableEq γ]
+    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+    (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
+    (proj : TypedTuple (Fin.append colType1 colType2) → γ) :
+    (join r1 r2 a1 a2 cond).rows.image proj
+      = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows.image (fun u => proj (swapAppend u)) := by
+  rw [← join_comm r1 r2 cond a1 a2, Finset.image_image]
+  apply Finset.image_congr
+  intro t _
+  simp only [Function.comp_apply, swapAppend_swapAppend]
+
+-- Theorem: **selection pushdown into the left join input** — a `WHERE` reading only the left
+-- columns can be applied to the left table before joining: `σ_{pL∘left}(R ⋈ S) = (σ_{pL} R) ⋈ S`.
+theorem restriction_join_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (a1 a2 : String) (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
+    (pL : TypedTuple colType1 → Bool) :
+    restriction (fun t => pL (splitTuple t).1) (join r1 r2 a1 a2 cond)
+      = join (restriction pL r1) r2 a1 a2 cond := by
+  apply TypedRelation.ext
+  · rfl
+  · ext t
+    simp only [restriction, join, Finset.mem_filter, mem_crossProduct]
+    grind
+
 /-
 ## Semi-join and Anti-join
 Unlike the (cross-product based) `join`, these are SCHEMA-PRESERVING: the output keeps the left
@@ -130,6 +186,63 @@ theorem semijoin_union_antijoin (r1 : TypedRelation colType1) (r2 : TypedRelatio
   simp only [Finset.mem_union, Finset.mem_filter, decide_eq_true_eq, decide_not,
     Bool.not_eq_true', decide_eq_false_iff_not]
   grind
+
+/-! ### Subquery ↔ join/semi-join bridges
+The dataset's cross-skill rewrites are overwhelmingly "subquery form vs join form". These lemmas
+connect the two: `EXISTS`/`IN` correlated subqueries are semi-joins, and a semi-join is the
+`DISTINCT` left-projection of the corresponding inner join. -/
+
+-- **`WHERE EXISTS`/membership** — the defining membership of a semi-join.
+theorem mem_semijoin (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) (t : TypedTuple colType1) :
+    t ∈ (semijoin r1 r2 cond).rows ↔ t ∈ r1.rows ∧ ∃ s ∈ r2.rows, cond t s := by
+  simp only [semijoin, restriction, Finset.mem_filter, decide_eq_true_eq]
+
+-- **`WHERE a IN (SELECT b FROM S)` is a semi-join on `a = b`.** The uncorrelated `IN`-subquery
+-- (membership in a projected column) equals the semi-join with the equality correlation.
+theorem in_subquery_eq_semijoin {β : Type} [DecidableEq β]
+    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (a : TypedTuple colType1 → β) (b : TypedTuple colType2 → β) :
+    restriction (fun t => decide (a t ∈ r2.rows.image b)) r1
+      = semijoin r1 r2 (fun t s => decide (a t = b s)) := by
+  simp only [semijoin]
+  refine congrArg (fun p => restriction p r1) ?_
+  funext t
+  simp only [Finset.mem_image, decide_eq_true_eq]
+  grind
+
+-- **`WHERE a NOT IN (SELECT b FROM S)` is an anti-join on `a = b`** — the `NOT IN`/`NOT EXISTS`
+-- mirror of `in_subquery_eq_semijoin`.
+theorem not_in_subquery_eq_antijoin {β : Type} [DecidableEq β]
+    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (a : TypedTuple colType1 → β) (b : TypedTuple colType2 → β) :
+    restriction (fun t => decide (a t ∉ r2.rows.image b)) r1
+      = antijoin r1 r2 (fun t s => decide (a t = b s)) := by
+  simp only [antijoin]
+  refine congrArg (fun p => restriction p r1) ?_
+  funext t
+  simp only [Finset.mem_image, decide_eq_true_eq]
+  grind
+
+-- **A semi-join is the `DISTINCT` left-projection of the inner join.** `R ⋉ S` (i.e. `WHERE
+-- EXISTS (… cond)`) equals the set of left-rows of `R ⋈_cond S` — the bridge between the
+-- subquery form and the `JOIN … (GROUP BY/DISTINCT)` form.
+theorem semijoin_eq_join_image (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (a1 a2 : String) (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) :
+    (semijoin r1 r2 cond).rows
+      = (join r1 r2 a1 a2 (fun t => cond (splitTuple t).1 (splitTuple t).2)).rows.image
+          (fun t => (splitTuple t).1) := by
+  ext r
+  simp only [semijoin, restriction, Finset.mem_filter, decide_eq_true_eq, Finset.mem_image,
+    join, mem_crossProduct]
+  constructor
+  · rintro ⟨hr, s, hs, hc⟩
+    refine ⟨combineTuple (r, s), ?_, ?_⟩
+    · simp only [splitTuple_combineTuple]; exact ⟨⟨hr, hs⟩, hc⟩
+    · simp only [splitTuple_combineTuple]
+  · rintro ⟨t, ⟨⟨hL, hR⟩, hc⟩, hrt⟩
+    subst hrt
+    exact ⟨hL, (splitTuple t).2, hR, hc⟩
 
 /-
 ## NULL handling and outer joins

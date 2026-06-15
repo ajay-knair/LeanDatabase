@@ -164,6 +164,32 @@ def splitTuple (t : TypedTuple (Fin.append colType1 colType2)) :
       h ▸ t (Fin.natAdd n i)
   )
 
+-- Helper: Combine Tuple — the inverse of `splitTuple`. Glues a `(left, right)` pair into one
+-- appended-schema tuple (the named form of the gluing used inside `crossProductRel`).
+def combineTuple (p : TypedTuple colType1 × TypedTuple colType2) :
+    TypedTuple (Fin.append colType1 colType2) :=
+  fun i =>
+    Fin.addCases
+      (fun i =>
+        have h : Fin.append colType1 colType2 (Fin.castAdd m i) = colType1 i := by simp [Fin.append, Fin.addCases]
+        h.symm ▸ p.1 i)
+      (fun i =>
+        have h : Fin.append colType1 colType2 (Fin.natAdd n i) = colType2 i := by simp [Fin.append, Fin.addCases]
+        h.symm ▸ p.2 i)
+      i
+
+-- Splitting a combined tuple recovers the original pair (`splitTuple ∘ combineTuple = id`).
+omit [∀ i, DecidableEq (colType1 i)] [∀ i, DecidableEq (colType2 i)] in
+@[simp] theorem splitTuple_combineTuple (p : TypedTuple colType1 × TypedTuple colType2) :
+    splitTuple (combineTuple p) = p := by
+  apply Prod.ext
+  · funext k
+    simp only [splitTuple, combineTuple, Fin.addCases_left]
+    grind
+  · funext k
+    simp only [splitTuple, combineTuple, Fin.addCases_right]
+    grind
+
 -- Theorem: Membership of Cross Product
 -- t ∈ (R1 × R2) ↔ t_left ∈ R1 ∧ t_right ∈ R2
 -- "A row is in the product if and only if its parts are in the source tables"
@@ -202,5 +228,107 @@ theorem mem_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelation colTy
         grind
       · simp_all only [Fin.addCases_right]
         grind
+
+/-
+## Cross-product commutativity (up to the schema half-swap)
+
+`crossProductRel r1 r2` lives over `Fin.append colType1 colType2`, while `crossProductRel r2 r1`
+lives over `Fin.append colType2 colType1` — *different* dependent schemas. `swapAppend` is the
+reindexing that exchanges the two halves; under it the two cross products have the same row-set.
+-/
+
+-- Swap the two halves of an appended-schema tuple: `(c1 ++ c2)`-tuple ↦ `(c2 ++ c1)`-tuple.
+@[simp]
+def swapAppend (t : TypedTuple (Fin.append colType1 colType2)) :
+    TypedTuple (Fin.append colType2 colType1) :=
+  fun j =>
+    Fin.addCases
+      (fun (j : Fin m) =>
+        have h : Fin.append colType2 colType1 (Fin.castAdd n j) = colType2 j := by
+          simp [Fin.append, Fin.addCases]
+        h.symm ▸ (splitTuple t).2 j)
+      (fun (j : Fin n) =>
+        have h : Fin.append colType2 colType1 (Fin.natAdd m j) = colType1 j := by
+          simp [Fin.append, Fin.addCases]
+        h.symm ▸ (splitTuple t).1 j)
+      j
+
+-- Splitting a swapped tuple just swaps the two component tuples.
+omit [∀ i, DecidableEq (colType1 i)] [∀ i, DecidableEq (colType2 i)] in
+theorem splitTuple_swapAppend (t : TypedTuple (Fin.append colType1 colType2)) :
+    splitTuple (swapAppend t) = ((splitTuple t).2, (splitTuple t).1) := by
+  apply Prod.ext
+  · funext k
+    simp only [splitTuple, swapAppend, Fin.addCases_left]
+    grind
+  · funext k
+    simp only [splitTuple, swapAppend, Fin.addCases_right]
+    grind
+
+-- `swapAppend` is an involution (swapping back recovers the original tuple).
+omit [∀ i, DecidableEq (colType1 i)] [∀ i, DecidableEq (colType2 i)] in
+theorem swapAppend_swapAppend (t : TypedTuple (Fin.append colType1 colType2)) :
+    swapAppend (swapAppend t) = t := by
+  funext j
+  induction j using Fin.addCases with
+  | left k => simp only [swapAppend, splitTuple, Fin.addCases_left, Fin.addCases_right]; grind
+  | right k => simp only [swapAppend, splitTuple, Fin.addCases_left, Fin.addCases_right]; grind
+
+-- **Cross-product commutativity.** The two argument orders have the same row-set up to `swapAppend`.
+theorem crossProduct_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String) :
+    (crossProductRel r1 r2 a1 a2).rows.image swapAppend = (crossProductRel r2 r1 a2 a1).rows := by
+  ext u
+  simp only [Finset.mem_image]
+  rw [mem_crossProduct]
+  constructor
+  · rintro ⟨t, ht, rfl⟩
+    rw [mem_crossProduct] at ht
+    rw [splitTuple_swapAppend]
+    exact ⟨ht.2, ht.1⟩
+  · rintro ⟨h1, h2⟩
+    refine ⟨swapAppend u, ?_, swapAppend_swapAppend u⟩
+    rw [mem_crossProduct, splitTuple_swapAppend]
+    exact ⟨h2, h1⟩
+
+-- Combining a split tuple recovers the original (`combineTuple ∘ splitTuple = id`).
+omit [∀ i, DecidableEq (colType1 i)] [∀ i, DecidableEq (colType2 i)] in
+@[simp] theorem combineTuple_splitTuple (t : TypedTuple (Fin.append colType1 colType2)) :
+    combineTuple (splitTuple t) = t := by
+  funext j
+  induction j using Fin.addCases with
+  | left k => simp only [combineTuple, splitTuple, Fin.addCases_left]; grind
+  | right k => simp only [combineTuple, splitTuple, Fin.addCases_right]; grind
+
+/-
+## Cross-product associativity (up to the schema re-bracketing)
+
+`(c1 ++ c2) ++ c3` vs `c1 ++ (c2 ++ c3)` — `assocAppend` re-brackets, built purely from
+`splitTuple`/`combineTuple`. Under it the two nestings of the cross product have the same row-set.
+This is the data core of three-way join associativity.
+-/
+variable {p : Nat} {colType3 : Fin p → Type} [∀ i, DecidableEq (colType3 i)]
+
+-- Re-bracket `((c1 ++ c2) ++ c3)`-tuple to `(c1 ++ (c2 ++ c3))`-tuple.
+def assocAppend (t : TypedTuple (Fin.append (Fin.append colType1 colType2) colType3)) :
+    TypedTuple (Fin.append colType1 (Fin.append colType2 colType3)) :=
+  combineTuple ((splitTuple (splitTuple t).1).1,
+                combineTuple ((splitTuple (splitTuple t).1).2, (splitTuple t).2))
+
+-- **Cross-product associativity.** Left- and right-nested cross products agree up to `assocAppend`.
+theorem crossProduct_assoc (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (r3 : TypedRelation colType3) (a b c d : String) :
+    (crossProductRel (crossProductRel r1 r2 a b) r3 c d).rows.image assocAppend
+      = (crossProductRel r1 (crossProductRel r2 r3 a b) c d).rows := by
+  ext u
+  simp only [Finset.mem_image, mem_crossProduct]
+  constructor
+  · rintro ⟨t, ⟨⟨h1, h2⟩, h3⟩, rfl⟩
+    simp only [assocAppend, splitTuple_combineTuple]
+    exact ⟨h1, h2, h3⟩
+  · rintro ⟨h1, h2, h3⟩
+    refine ⟨combineTuple (combineTuple ((splitTuple u).1, (splitTuple (splitTuple u).2).1),
+            (splitTuple (splitTuple u).2).2), ?_, ?_⟩
+    · simp only [splitTuple_combineTuple]; exact ⟨⟨h1, h2⟩, h3⟩
+    · simp only [assocAppend, splitTuple_combineTuple, Prod.mk.eta, combineTuple_splitTuple]
 
 end LeanDatabase

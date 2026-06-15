@@ -3,6 +3,7 @@ import LeanDatabase.Operators.Aggregate
 import LeanDatabase.CurriedPredicates
 import LeanDatabase.SQLToolbox
 import LeanDatabase.Operators
+import LeanDatabase.Constraints
 
 open LeanDatabase LeanDatabase.TypedAgg
 
@@ -32,7 +33,8 @@ macro "sql_equiv" : tactic => `(tactic|
      | (apply TypedRelation.ext <;> try rfl)
      | refine Finset.filter_congr (fun _ _ => ?_)
      | refine Finset.image_congr (fun _ _ => ?_)
-     | sql_simp)
+     | sql_simp
+     | (apply funext; intro _))
    all_goals (first
      | grind +locals
      | (apply Finset.ext; sql_simp; grind +locals))))

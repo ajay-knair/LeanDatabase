@@ -1,0 +1,295 @@
+{
+  "dataset": "Examples/CrossSkill/crossskill_equivalent_sql.jsonl",
+  "dataset_totals": {
+    "records": 351,
+    "total_sqls": 1266
+  },
+  "scope": "Manual encoding: pure relational-algebra variant differences are proved with bare sql_equiv; data-dependent ones are proved under an explicit hypothesis (FD/bijection/predicate-agreement) via the constraint layer; NULL/rounding/top-N-order differences are out_of_scope.",
+  "tactic_under_test": "sql_equiv (LeanDatabase.SQLEquiv)",
+  "note": "MERGED record: previously-judged instances are preserved (some may not have a .lean file on disk right now — see on_disk); new on-disk files are appended. Counts = prior + new incomers.",
+  "outcome_legend": {
+    "pass": "bare sql_equiv closes the pure-algebra difference.",
+    "pass_under_hypothesis": "true only under a stated data hypothesis (FD / bijection / predicate-agreement); proved with that as a premise.",
+    "out_of_scope": "needs NULL/rounding/top-N-order semantics we abstract away; no theorem.",
+    "fail": "a genuinely-algebraic goal sql_equiv could not close (none currently)."
+  },
+  "lemmas_added_to_toolbox": [
+    {
+      "name": "swapAppend + crossProduct_comm + join_comm + join_comm_image",
+      "where": "LeanDatabase/Operators/{CrossProduct,Join}.lean",
+      "statement": "join/cross-product commutativity via the dependent half-swap reindex; join_comm_image is the first-order 'swap operands then project' corollary."
+    },
+    {
+      "name": "restriction_join_left",
+      "where": "LeanDatabase/Operators/Join.lean",
+      "statement": "selection pushdown into the left join input: sigma_{pL.left}(R join S) = (sigma_pL R) join S."
+    },
+    {
+      "name": "join_cond_congr",
+      "where": "LeanDatabase/Operators/Join.lean",
+      "statement": "pointwise-equal join conditions give equal joins (closes ON a=b vs ON b=a)."
+    },
+    {
+      "name": "union_idempotence + projection_union + select_union",
+      "where": "LeanDatabase/{RelationalAlgebra,Operators/Select}.lean",
+      "statement": "R union R = R; projection and computed SELECT distribute over UNION."
+    },
+    {
+      "name": "relMax_union + relMin_union + relCount_eq_relCountDistinct_of_injOn",
+      "where": "LeanDatabase/Operators/Aggregate.lean",
+      "statement": "MAX/MIN over a union is the sup/inf of the two; COUNT(*) = COUNT(DISTINCT key) when key is injective on the rows."
+    },
+    {
+      "name": "FuncDepEq + cnt_pair_eq_of_FD + cnt_collapse_of_FD (@[simp]) + relCountDistinct_eq_of_factor",
+      "where": "LeanDatabase/Constraints.lean",
+      "statement": "functional-dependency layer: GROUP BY (det,key) collapses to GROUP BY key under key->det; COUNT(DISTINCT) under a factoring bijection."
+    },
+    {
+      "name": "restriction_congr + cnt_eq_of_partition_eq + card_image_eq_of_fiber + select_congr",
+      "where": "LeanDatabase/{SQLToolbox,Operators/Select}.lean",
+      "statement": "general congruences: restriction/select agree when predicates/row-maps agree on the data; same-partition => same group count / same distinct count."
+    },
+    {
+      "name": "SUBQUERY BRIDGES: mem_semijoin + in_subquery_eq_semijoin + semijoin_eq_join_image (+ combineTuple/splitTuple_combineTuple)",
+      "where": "LeanDatabase/Operators/{CrossProduct,Join}.lean",
+      "statement": "EXISTS/IN correlated subquery = semi-join; a semi-join is the DISTINCT left-projection of the inner join. The subquery<->join-form bridge (combineTuple is the named inverse of splitTuple)."
+    },
+    {
+      "name": "crossProduct_assoc + assocAppend + combineTuple_splitTuple",
+      "where": "LeanDatabase/Operators/CrossProduct.lean",
+      "statement": "three-way cross-product associativity up to the append re-bracketing (the data core of join associativity)."
+    },
+    {
+      "name": "relCount_union_add_inter",
+      "where": "LeanDatabase/Operators/Aggregate.lean",
+      "statement": "inclusion-exclusion for COUNT (|R|+|S| = |R∪S|+|R∩S|); UNION ALL = UNION on disjoint inputs (set model has no bag multiplicity)."
+    }
+  ],
+  "planned_lemmas": [
+    {
+      "name": "full conditional join_assoc",
+      "where": "LeanDatabase/Operators/Join.lean",
+      "why": "lift crossProduct_assoc (done) through join conditions on the intermediate schema — needs a named assocAppend inverse + condition transport."
+    },
+    {
+      "name": "UNION ALL bag multiplicity, genuine top-N (ORDER BY LIMIT k)",
+      "why": "out of the Finset set-model: top-N is identity here (correct for sets), bag multiplicity needs a different model."
+    }
+  ],
+  "summary": {
+    "encoded": 20,
+    "pass": 15,
+    "pass_under_hypothesis": 5,
+    "out_of_scope": 0,
+    "fail": 0,
+    "on_disk_now": 9
+  },
+  "instances": [
+    {
+      "instance_id": "sf010",
+      "file": "Examples/CrossSkill/Sf010.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "the VARIABLE_GROUP filter is written as a SQL IN (…) list (baseline-sg) vs. an explicit OR-chain of equalities (probing). Everything else (join, GROUP BY DATE, SUM, ORDER BY) is identical, so the whole-query equivalence follows by congruence from the equality of the two WHERE predicates — proved her",
+      "table_encoded": "FHFA_MORTGAGE_PERFORMANCE_ATTRIBUTES (6)",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq020",
+      "file": "Examples/CrossSkill/Sf_bq020.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "probing vs baseline-sg. They are identical (same SELECT r.name, same JOIN, same GROUP BY r.name, r.length, same LIMIT 1) except for the ORDER BY key: CAST(COUNT() AS FLOAT) / CAST(r.\"length\" AS FLOAT) vs COUNT() / r.\"length\". Under set semantics ORDER BY (and LIMIT) is identity on the row-set, so th",
+      "table_encoded": "MNPR01_201703 (51), MNPR01_REFERENCE_201703 (2)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq027",
+      "file": "Examples/CrossSkill/Sf_bq027.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing vs baseline-sg are identical except the ORDER BY: ORDER BY SEA_BACKWARD_CITATIONS DESC vs ORDER BY SEA_BACKWARD_CITATIONS DESC, p.publication_number DESC (an extra tiebreak key). Everything else (the LEFT JOIN LATERAL FLATTEN, WHERE grant_date BETWEEN 20100101 AND 20181231, GROUP BY",
+      "table_encoded": "PUBLICATIONS (37)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq030",
+      "file": "Examples/CrossSkill/Sf_bq030.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing writes the recovery rate as SUM(recovered) / SUM(confirmed) 100 (divide then multiply); probing writes SUM(recovered) 100.0 / SUM(confirmed) (multiply then divide). All four wrap it in ROUND(_,2); GROUP BY country, HAVING SUM(confirmed)>50000, ORDER BY … LIMIT 3 are shared.",
+      "table_encoded": "COVID19_OPEN_DATA (701)",
+      "note": "needed `set_option maxRecDepth` (wide schema).",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq048",
+      "file": "Examples/CrossSkill/Sf_bq048.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": null,
+      "table_encoded": null,
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq060",
+      "file": "Examples/CrossSkill/Sf_bq060.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass_under_hypothesis",
+      "difference": "(data functional dependency). All four variants use the same join order (BIRTH_DEATH_GROWTH_RATES b JOIN COUNTRY_NAMES_AREA); the only real difference is whether the output country_name is read from b (BIRTH_DEATH…) or from c/a (COUNTRY_NAMES_AREA). Those agree only when country_code → country_name ",
+      "table_encoded": "BIRTH_DEATH_GROWTH_RATES (8), COUNTRY_NAMES_AREA (3)",
+      "hypothesis_needed": "cross-table FD country_code -> country_name",
+      "note": "Now PROVED under the cross-table FD: ON forces matching country_code on each joined row, FD then forces matching country_name, so SELECT b.country_name ≡ SELECT c.country_name (select_congr).",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq232",
+      "file": "Examples/CrossSkill/Sf_bq232.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass",
+      "difference": "the dataset's own variants split two ways: - semantic-probing vs baseline-sg differ ONLY in output alias/quoting (YEAR_TOTAL vs \"YEAR_TOTAL\", year vs \"year\") — presentation-only; identical row-sets. - baseline-1 DROPS the major_category = 'Theft and Handling' conjunct — equal only if every 'Other Th",
+      "table_encoded": "CRIME_BY_LSOA (7)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq280",
+      "file": "Examples/CrossSkill/Sf_bq280.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass_under_hypothesis",
+      "difference": "(needs a data hypothesis). All three variants share the same JOIN, WHERE reputation > 10, and ORDER BY COUNT() DESC LIMIT 1. The substantive difference is the GROUP BY granularity: - semantic-probing: GROUP BY display_name - probing / baseline-1: GROUP BY id, display_name",
+      "table_encoded": "POSTS_ANSWERS (20), USERS (13)",
+      "hypothesis_needed": "FD display_name -> id (functional dependency)",
+      "note": "Now PROVED under the FD hypothesis via cnt_pair_eq_of_FD (Constraints.lean): GROUP BY display_name and GROUP BY id,display_name give equal per-group COUNT(*).",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq284",
+      "file": "Examples/CrossSkill/Sf_bq284.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "both variants compute the per-category education-share as SUM(CASE WHEN LOWER(body) LIKE '%education%' THEN 1 ELSE 0 END) over COUNT(); they differ only in the ratio order — x 100 / total (semantic-probing) vs 100 x / total (baseline-sg). Pure algebra: is commutative. The shared LOWER(body) LIKE '%e",
+      "table_encoded": "FULLTEXT (4)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq300",
+      "file": "Examples/CrossSkill/Sf_bq300.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing vs probing. Identical WHERE (tags LIKE '%python-2%' AND tags NOT LIKE '%python-3%') and identical MAX(...); the only difference is the aggregated expression: MAX(CAST(\"answer_count\" AS INTEGER)) vs MAX(\"answer_count\").",
+      "table_encoded": "POSTS_QUESTIONS (20)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq310",
+      "file": "Examples/CrossSkill/Sf_bq310.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass_under_hypothesis",
+      "difference": null,
+      "table_encoded": "POSTS_QUESTIONS (20)",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq327",
+      "file": "Examples/CrossSkill/Sf_bq327.lean",
+      "num_distinct_variants": 2,
+      "num_equivalent_sqls": 2,
+      "sql_equiv": "pass_under_hypothesis",
+      "difference": "COUNT(DISTINCT indicator_name) vs COUNT(DISTINCT indicator_code) over the same WHERE country_name='Russian Federation' AND value=0. Equal only under a data bijection name↔code (nothing in the SQL/DDL says so). We supply that bijection as a hypothesis — a function φ with code = φ ∘ name on the rows a",
+      "table_encoded": "INTERNATIONAL_DEBT (6)",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq396",
+      "file": "Examples/CrossSkill/Sf_bq396.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "the per-state tally is written three ways across variants: SUM(CASE WHEN clear THEN 1 ELSE 0) - SUM(CASE WHEN rain THEN 1 ELSE 0) (probing, wrapped in ABS), the same with operands swapped ABS(rain - clear) (baseline-sg), and with the tally as COUNT(CASE WHEN _ THEN 1 END) (baseline-1). Two pure-alge",
+      "table_encoded": "ACCIDENT_2016 (70)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq398",
+      "file": "Examples/CrossSkill/Sf_bq398.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass_under_hypothesis",
+      "difference": null,
+      "table_encoded": "INTERNATIONAL_DEBT (6)",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_bq402",
+      "file": "Examples/CrossSkill/Sf_bq402.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing vs probing, the CONVERSION_RATE_PERCENTAGE column (both ROUND(_,1)). The numerator COUNT(DISTINCT purchasers) and denominator COUNT(DISTINCT visitors) are identical on both sides; they differ only in arithmetic order: (purch / vis) 100 (divide-then-multiply, with ::FLOAT casts) vs p",
+      "table_encoded": "WEB_ANALYTICS (15)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_bq407",
+      "file": "Examples/CrossSkill/Sf_bq407.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing vs probing are identical except the JOIN ON equality operand order: ON LPAD(c.geo_id,5,'0') = s.county_fips_code vs ON s.county_fips_code = LPAD(c.geo_id,5,'0'). That is pure equality symmetry (x = y ≡ y = x) inside the join predicate; everything else (WHERE, the per-100k/CFR rate c",
+      "table_encoded": "SUMMARY (7), COUNTY_2020_5YR (245)",
+      "note": "needed `set_option maxRecDepth` (wide schema).",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_local007",
+      "file": "Examples/CrossSkill/Sf_local007.lean",
+      "num_distinct_variants": 3,
+      "num_equivalent_sqls": 3,
+      "sql_equiv": "pass",
+      "difference": "semantic-probing vs probing — the AVG(DATEDIFF('day',DEBUT, FINAL_GAME)/365.0) expression and the WHERE DEBUT IS NOT NULL AND FINAL_GAME IS NOT NULL are IDENTICAL; the only difference is the output alias (AVG_CAREER_SPAN vs AVERAGE_CAREER_SPAN_YEARS). An alias is presentation-only — it does not chan",
+      "table_encoded": "PLAYER (24)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_local041",
+      "file": "Examples/CrossSkill/Sf_local041.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "numerator COUNT(CASE WHEN health='Good' THEN 1 END) vs SUM(CASE WHEN health='Good' THEN 1 ELSE 0 END), and ratio order x100/total vs 100x/total. Counting the p-rows equals summing a 0/1 indicator (sum_indicator_eq_count_where); is commutative; COUNT() and ROUND(_,2) are identical post-processing (th",
+      "table_encoded": "TREES (16)",
+      "on_disk": true
+    },
+    {
+      "instance_id": "sf_local085",
+      "file": "Examples/CrossSkill/Sf_local085.lean",
+      "num_distinct_variants": 4,
+      "num_equivalent_sqls": 4,
+      "sql_equiv": "pass",
+      "difference": "probing vs baseline-sg (ROUND stripped). Across the four variants there are three independent differences: - the late-order ratio order: SUM(CASE…) 100 / COUNT() vs 100 SUM(CASE…) / COUNT() — pure algebra ( commutes), the pair proved here; - semantic-probing adds shippeddate IS NOT NULL to the predi",
+      "table_encoded": "ORDERS (14)",
+      "on_disk": false
+    },
+    {
+      "instance_id": "sf_local131",
+      "file": "Examples/CrossSkill/Sf_local131.lean",
+      "num_distinct_variants": 2,
+      "num_equivalent_sqls": 2,
+      "sql_equiv": "pass",
+      "difference": "each preference tally is SUM(CASE WHEN PreferenceSeq=k THEN 1 ELSE 0 END) (semantic-probing) vs COALESCE(SUM(CASE WHEN PreferenceSeq=k THEN 1 ELSE 0 END), 0) (baseline-sg). Everything else (the LEFT JOIN, GROUP BY StyleID,StyleName, ORDER BY) is identical.",
+      "table_encoded": "MUSICAL_STYLES (2), MUSICAL_PREFERENCES (3)",
+      "on_disk": false
+    }
+  ]
+}

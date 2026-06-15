@@ -279,6 +279,16 @@ theorem restriction_monotone (p : (TypedTuple colType → Bool)) (r1 r2 : TypedR
     (restriction p r1).rows ⊆ (restriction p r2).rows := by
   grind
 
+-- Theorem: Union is idempotent — `R ∪ R = R`. (The union twin of `inter_idempotence`.)
+@[grind =] theorem union_idempotence (r : TypedRelation colType) : union r r = r := by
+  apply TypedRelation.ext <;> simp [union]
+
+-- Theorem: Projection distributes over union — `π(R ∪ S) = πR ∪ πS`.
+@[grind =] theorem projection_union {m : Nat} (indices : Fin m → Fin n)
+    (r s : TypedRelation colType) :
+    projection indices (union r s) = union (projection indices r) (projection indices s) := by
+  apply TypedRelation.ext <;> simp [projection, union, Finset.image_union]
+
 /-! ### Other Important Theorems -/
 -- Theorem: Push Selection into Intersection (Left Side)
 -- σ_p(R ∩ S) = σ_p(R) ∩ S
