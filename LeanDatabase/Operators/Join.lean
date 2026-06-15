@@ -107,6 +107,40 @@ theorem join_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
     refine ⟨swapAppend u, ⟨?_, hucond⟩, swapAppend_swapAppend u⟩
     rw [mem_crossProduct, splitTuple_swapAppend]; exact ⟨humem.2, humem.1⟩
 
+-- Theorem: Join condition congruence — pointwise-equal conditions give the same join.
+-- (Closes `ON a=b` vs `ON b=a` once the two conditions are shown equal, e.g. by `eq_comm`.)
+theorem join_cond_congr (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+    (c c' : TypedTuple (Fin.append colType1 colType2) → Bool) (h : ∀ t, c t = c' t) :
+    join r1 r2 a1 a2 c = join r1 r2 a1 a2 c' := by
+  have : c = c' := funext h; rw [this]
+
+-- Theorem: first-order **join-order swap under a projection**. Projecting a join and projecting the
+-- operand-swapped join (with condition + projection transported through `swapAppend`) give the same
+-- rows — a directly usable corollary of `join_comm` for "same query, operands swapped, then SELECT".
+theorem join_comm_image {γ : Type} [DecidableEq γ]
+    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+    (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
+    (proj : TypedTuple (Fin.append colType1 colType2) → γ) :
+    (join r1 r2 a1 a2 cond).rows.image proj
+      = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows.image (fun u => proj (swapAppend u)) := by
+  rw [← join_comm r1 r2 cond a1 a2, Finset.image_image]
+  apply Finset.image_congr
+  intro t _
+  simp only [Function.comp_apply, swapAppend_swapAppend]
+
+-- Theorem: **selection pushdown into the left join input** — a `WHERE` reading only the left
+-- columns can be applied to the left table before joining: `σ_{pL∘left}(R ⋈ S) = (σ_{pL} R) ⋈ S`.
+theorem restriction_join_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
+    (a1 a2 : String) (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
+    (pL : TypedTuple colType1 → Bool) :
+    restriction (fun t => pL (splitTuple t).1) (join r1 r2 a1 a2 cond)
+      = join (restriction pL r1) r2 a1 a2 cond := by
+  apply TypedRelation.ext
+  · rfl
+  · ext t
+    simp only [restriction, join, Finset.mem_filter, mem_crossProduct]
+    grind
+
 /-
 ## Semi-join and Anti-join
 Unlike the (cross-product based) `join`, these are SCHEMA-PRESERVING: the output keeps the left

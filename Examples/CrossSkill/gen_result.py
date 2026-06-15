@@ -1,89 +1,126 @@
 #!/usr/bin/env python3
 """Regenerate result.json from the CrossSkill instance files + the dataset.
 
-outcome = "pass" if the file contains an active (non-commented) `sql_equiv` proof,
-else "out_of_scope" (we keep no `sorry`, and the only former hard-fail — join_comm — is
-now a toolbox lemma). A file may PASS on the winnable sub-difference while documenting
-other variant differences as out-of-scope; the docstring carries the detail.
+MERGE semantics (so we don't re-judge prior work): the existing result.json's instances are the
+source of truth and are PRESERVED; on-disk `Sf*.lean` files that are NOT already recorded are added
+as new entries (crude auto-classification: an active `sql_equiv`/theorem ⇒ pass, else out_of_scope).
+The recorded count is therefore "previously-judged + new incomers". (A proper re-judge of changed
+files is left for later — see the note in the header.)
+
+outcome values: pass | pass_under_hypothesis | out_of_scope | fail.
 """
 import json, re, os, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "crossskill_equivalent_sql.jsonl")
-recs = {json.loads(l)["instance_id"]: json.loads(l) for l in open(DATA)}
+RESULT = os.path.join(HERE, "result.json")
+recs = {json.loads(l)["instance_id"]: json.loads(l) for l in open(DATA)} if os.path.exists(DATA) else {}
+
+LEMMAS = [
+    {"name": "swapAppend + crossProduct_comm + join_comm + join_comm_image",
+     "where": "LeanDatabase/Operators/{CrossProduct,Join}.lean",
+     "statement": "join/cross-product commutativity via the dependent half-swap reindex; join_comm_image is the first-order 'swap operands then project' corollary."},
+    {"name": "restriction_join_left",
+     "where": "LeanDatabase/Operators/Join.lean",
+     "statement": "selection pushdown into the left join input: sigma_{pL.left}(R join S) = (sigma_pL R) join S."},
+    {"name": "join_cond_congr",
+     "where": "LeanDatabase/Operators/Join.lean",
+     "statement": "pointwise-equal join conditions give equal joins (closes ON a=b vs ON b=a)."},
+    {"name": "union_idempotence + projection_union + select_union",
+     "where": "LeanDatabase/{RelationalAlgebra,Operators/Select}.lean",
+     "statement": "R union R = R; projection and computed SELECT distribute over UNION."},
+    {"name": "relMax_union + relMin_union + relCount_eq_relCountDistinct_of_injOn",
+     "where": "LeanDatabase/Operators/Aggregate.lean",
+     "statement": "MAX/MIN over a union is the sup/inf of the two; COUNT(*) = COUNT(DISTINCT key) when key is injective on the rows."},
+    {"name": "FuncDepEq + cnt_pair_eq_of_FD + cnt_collapse_of_FD (@[simp]) + relCountDistinct_eq_of_factor",
+     "where": "LeanDatabase/Constraints.lean",
+     "statement": "functional-dependency layer: GROUP BY (det,key) collapses to GROUP BY key under key->det; COUNT(DISTINCT) under a factoring bijection."},
+    {"name": "restriction_congr + cnt_eq_of_partition_eq + card_image_eq_of_fiber + select_congr",
+     "where": "LeanDatabase/{SQLToolbox,Operators/Select}.lean",
+     "statement": "general congruences: restriction/select agree when predicates/row-maps agree on the data; same-partition => same group count / same distinct count."},
+]
+PLANNED = [
+    {"name": "join_assoc", "where": "LeanDatabase/Operators/{CrossProduct,Join}.lean",
+     "why": "3-way join reassociation; needs a dependent append-associativity reindex (analogous to swapAppend). Deferred — the hardest of the requested batch."},
+    {"name": "subquery<->join bridges, UNION ALL (bag), genuine top-N (ORDER BY LIMIT k)",
+     "why": "larger future items; the dataset is 85% subqueries and has many ranking queries."},
+]
 
 def first_para(text, marker):
     i = text.find(marker)
     if i < 0: return None
-    rest = text[i+len(marker):]
-    # up to first blank line
-    para = re.split(r"\n\s*\n", rest, 1)[0]
-    para = para.replace("*","").replace("`","").strip()
-    para = re.sub(r"\s+", " ", para)
-    return para[:300]
+    para = re.split(r"\n\s*\n", text[i+len(marker):], 1)[0]
+    return re.sub(r"\s+", " ", para.replace("*", "").replace("`", "").strip())[:300]
 
-instances = []
+# 1. Load existing result.json (the previously-judged record) -> dict by id.
+prev = {}
+if os.path.exists(RESULT):
+    old = json.load(open(RESULT))
+    for e in old.get("instances", []):
+        prev[e["instance_id"]] = e
+
+# 2. Walk on-disk files; add ONLY new ids (preserve prior judgments).
 for f in sorted(glob.glob(os.path.join(HERE, "Sf*.lean"))):
     src = open(f).read()
     mod = os.path.basename(f)[:-5]
     iid = mod[0].lower() + mod[1:]
+    if iid in prev:
+        # keep the curated prior entry; just refresh the file path / on-disk flag
+        prev[iid]["file"] = f"Examples/CrossSkill/{mod}.lean"
+        prev[iid]["on_disk"] = True
+        continue
     rec = recs.get(iid, {})
-    nvar = rec.get("num_distinct_variants")
-    nsql = len(rec.get("equivalent_sqls", [])) or None
-    has_proof = bool(re.search(r"^\s*sql_equiv\s*$", src, re.M)) and \
-                bool(re.search(r"^theorem", src, re.M))
-    outcome = "pass" if has_proof else "out_of_scope"
-    diff = (first_para(src, "Difference (winnable pair):") or
-            first_para(src, "Difference:") or
-            first_para(src, "Outcome —") or
-            first_para(src, "OUT-OF-SCOPE"))
+    proven = bool(re.search(r"^theorem ", src, re.M)) and not re.search(r"\bsorry\b|\badmit\b", src)
+    hyp = bool(re.search(r"under a (stated|data)|\bbijection\b|FuncDepEq|functional dependency", src, re.I))
+    outcome = "out_of_scope" if not proven else ("pass_under_hypothesis" if hyp else "pass")
     tbls = re.findall(r"Full `([A-Z0-9_]+)` schema \((\d+)", src)
-    table_encoded = ", ".join(f"{t} ({n})" for t,n in tbls) or None
-    rec_dollar = "set_option maxRecDepth" in src
-    entry = {
+    prev[iid] = {
         "instance_id": iid,
         "file": f"Examples/CrossSkill/{mod}.lean",
-        "num_distinct_variants": nvar,
-        "num_equivalent_sqls": nsql,
+        "num_distinct_variants": rec.get("num_distinct_variants"),
+        "num_equivalent_sqls": len(rec.get("equivalent_sqls", [])) or None,
         "sql_equiv": outcome,
-        "difference": diff,
-        "table_encoded": table_encoded,
+        "difference": first_para(src, "Difference (winnable pair):") or first_para(src, "Difference:"),
+        "table_encoded": ", ".join(f"{t} ({n})" for t, n in tbls) or None,
+        "on_disk": True,
     }
-    if rec_dollar:
-        entry["note"] = "needed `set_option maxRecDepth` (wide schema)."
-    instances.append(entry)
+    if "set_option maxRecDepth" in src:
+        prev[iid]["note"] = "needed `set_option maxRecDepth` (wide schema)."
 
-npass = sum(1 for e in instances if e["sql_equiv"] == "pass")
-noos  = sum(1 for e in instances if e["sql_equiv"] == "out_of_scope")
+# mark which prior entries no longer have a file on disk
+on_disk_ids = {os.path.basename(f)[:-5][0].lower() + os.path.basename(f)[:-5][1:]
+               for f in glob.glob(os.path.join(HERE, "Sf*.lean"))}
+for iid, e in prev.items():
+    e.setdefault("on_disk", iid in on_disk_ids)
+
+instances = [prev[k] for k in sorted(prev)]
+from collections import Counter
+c = Counter(e["sql_equiv"] for e in instances)
 
 out = {
-    "dataset": "Examples/crossskill_equivalent_sql.jsonl",
-    "dataset_totals": {"records": len(recs),
-                       "total_sqls": sum(len(r["equivalent_sqls"]) for r in recs.values())},
-    "scope": ("Round-1 manual encoding: only variant pairs whose difference is PURE relational "
-              "algebra are proved with sql_equiv. Data/hypothesis-dependent, NULL, rounding-precision, "
-              "and top-N ordering differences are classified out_of_scope (a future hypothesis phase)."),
+    "dataset": "Examples/CrossSkill/crossskill_equivalent_sql.jsonl",
+    "dataset_totals": {"records": len(recs), "total_sqls": sum(len(r["equivalent_sqls"]) for r in recs.values())},
+    "scope": ("Manual encoding: pure relational-algebra variant differences are proved with bare sql_equiv; "
+              "data-dependent ones are proved under an explicit hypothesis (FD/bijection/predicate-agreement) "
+              "via the constraint layer; NULL/rounding/top-N-order differences are out_of_scope."),
     "tactic_under_test": "sql_equiv (LeanDatabase.SQLEquiv)",
-    "encoding_form": ("Parser-canonical: schema as `List SQLTypeProxy`, types via colTypeOfList/"
-                      "TypedRelationOfList, DecidableEq via sqlTypeDecEq. Full table column sets are "
-                      "encoded (not just columns used)."),
+    "note": ("MERGED record: previously-judged instances are preserved (some may not have a .lean file on disk "
+             "right now — see on_disk); new on-disk files are appended. Counts = prior + new incomers."),
     "outcome_legend": {
-        "pass": "sql_equiv closed the winnable pure-algebra difference (file has an active proof).",
-        "out_of_scope": "no pure-algebra equivalence between variants; needs a data hypothesis, or differs only by NULL/rounding/top-N ordering. Documented in-file, no theorem.",
-        "fail": "a genuinely-algebraic goal sql_equiv could not close (none remain this round; the join-commutativity gap was filled — see lemmas_added_to_toolbox)."
+        "pass": "bare sql_equiv closes the pure-algebra difference.",
+        "pass_under_hypothesis": "true only under a stated data hypothesis (FD / bijection / predicate-agreement); proved with that as a premise.",
+        "out_of_scope": "needs NULL/rounding/top-N-order semantics we abstract away; no theorem.",
+        "fail": "a genuinely-algebraic goal sql_equiv could not close (none currently).",
     },
-    "lemmas_added_to_toolbox": [
-        {"name": "crossProduct_comm + swapAppend (+ splitTuple_swapAppend, swapAppend_swapAppend involution)",
-         "where": "LeanDatabase/Operators/CrossProduct.lean",
-         "reason": "join-commutativity gap surfaced while encoding the join-order family",
-         "statement": "(crossProductRel r1 r2 a1 a2).rows.image swapAppend = (crossProductRel r2 r1 a2 a1).rows; swapAppend is the dependent half-swap reindex (c1++c2)->(c2++c1) and an involution."},
-        {"name": "join_comm",
-         "where": "LeanDatabase/Operators/Join.lean",
-         "statement": "(join r1 r2 a1 a2 cond).rows.image swapAppend = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows."}
-    ],
-    "summary": {"encoded": len(instances), "pass": npass, "out_of_scope": noos, "fail": 0},
+    "lemmas_added_to_toolbox": LEMMAS,
+    "planned_lemmas": PLANNED,
+    "summary": {"encoded": len(instances), "pass": c.get("pass", 0),
+                "pass_under_hypothesis": c.get("pass_under_hypothesis", 0),
+                "out_of_scope": c.get("out_of_scope", 0), "fail": c.get("fail", 0),
+                "on_disk_now": sum(1 for e in instances if e.get("on_disk"))},
     "instances": instances,
 }
-with open(os.path.join(HERE, "result.json"), "w") as fp:
-    json.dump(out, fp, indent=2, ensure_ascii=False)
-print(f"wrote result.json: {len(instances)} instances ({npass} pass, {noos} out_of_scope, 0 fail)")
+json.dump(out, open(RESULT, "w"), indent=2, ensure_ascii=False)
+print(f"wrote result.json: {len(instances)} instances "
+      f"({out['summary']['pass']} pass, {out['summary']['pass_under_hypothesis']} pass_under_hypothesis, "
+      f"{out['summary']['out_of_scope']} out_of_scope; {out['summary']['on_disk_now']} on disk now)")

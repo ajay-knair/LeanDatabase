@@ -176,6 +176,24 @@ theorem relCountDistinct_le {β : Type} [DecidableEq β]
     relCountDistinct f rel ≤ relCount rel := by
   simp only [relCountDistinct, relCount]; exact Finset.card_image_le
 
+/-- **`COUNT(*) = COUNT(DISTINCT key)` when `key` is a key** (injective on the rows). The honest
+fact behind `COUNT(DISTINCT pk) = COUNT(*)`. -/
+theorem relCount_eq_relCountDistinct_of_injOn {β : Type} [DecidableEq β]
+    (key : TypedTuple colType → β) (rel : TypedRelation colType)
+    (hinj : Set.InjOn key ↑rel.rows) :
+    relCount rel = relCountDistinct key rel := by
+  simp only [relCount, relCountDistinct, (Finset.card_image_of_injOn hinj)]
+
+/-- **`MAX` over a union** is the `sup` of the two `MAX`es (`WithBot`). -/
+@[grind =] theorem relMax_union (f : TypedTuple colType → Nat) (r s : TypedRelation colType) :
+    relMax f (union r s) = relMax f r ⊔ relMax f s := by
+  simp only [relMax, union, Finset.image_union, Finset.max_union]
+
+/-- **`MIN` over a union** is the `inf` of the two `MIN`s (`WithTop`). -/
+@[grind =] theorem relMin_union (f : TypedTuple colType → Nat) (r s : TypedRelation colType) :
+    relMin f (union r s) = relMin f r ⊓ relMin f s := by
+  simp only [relMin, union, Finset.image_union, Finset.min_union]
+
 /-! ## Additivity over a disjoint union, and the GROUP BY total -/
 
 /-- `COUNT(*)` is additive over a disjoint union (`UNION ALL` of disjoint relations). -/

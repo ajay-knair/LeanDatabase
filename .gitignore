@@ -1,5 +1,5 @@
 /.lake
 
 # Cross-skill SQL-equivalence instance files (not pushed)
-**/Sf_*.lean
+**/Sf*.lean
 Examples/CrossSkill/crossskill_equivalent_sql.jsonl

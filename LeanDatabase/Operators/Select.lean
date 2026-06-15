@@ -52,6 +52,12 @@ theorem select_congr (newLabels : Fin p → String)
   congr 1
   exact Finset.image_congr (fun t ht => h t ht)
 
+/-- **`SELECT` distributes over `UNION`**: `select f (R ∪ S) = select f R ∪ select f S`. -/
+@[grind =] theorem select_union (newLabels : Fin p → String)
+    (f : TypedTuple colType → TypedTuple outCT) (r s : TypedRelation colType) :
+    select newLabels f (union r s) = union (select newLabels f r) (select newLabels f s) := by
+  apply TypedRelation.ext <;> simp [select, union, Finset.image_union]
+
 /-- A computed `SELECT` over no rows produces no rows. -/
 @[simp, grind =] theorem select_empty (newLabels : Fin p → String)
     (f : TypedTuple colType → TypedTuple outCT) (l : Fin n → String) :
