@@ -22,8 +22,51 @@ syntax ident : sql_col
 syntax term "AS" ident : sql_col
 syntax sql_col,* : sql_cols
 
-syntax ident,* : sql_from
+
+-- Base Cases (The atomic sources of data)
+syntax ident : sql_from                               -- 1. Standard table name
+syntax "(" sql_query ")" "AS" ident : sql_from       -- 2. Subquery with mandatory alias
+
+-- Recursive Cases (Chaining joins from left to right)
+syntax sql_from "JOIN" ident "ON" term : sql_from     -- 3. Explicit Inner Join
+syntax sql_from "CROSS" "JOIN" ident : sql_from       -- 4. Cross Join
+syntax sql_from "," sql_from : sql_from              -- 5. Comma-separated (Cartesian Product)
+
 syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? (";")? : sql_query
+
+macro_rules -- Gemini generated (then fixed) rules for desugaring JOINs and CROSS JOINs into comma-separated FROM clauses with WHERE conditions; GROUP BY omitted for now.
+  -----------------------------------------------------------------------------
+  -- CASE A: The query ALREADY has an existing WHERE clause
+  -----------------------------------------------------------------------------
+  -- 1. Desugar INNER JOIN -> Replace with comma, append condition via AND
+
+  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond WHERE $whereCond ;) =>
+      `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $whereCond AND $onCond;)
+
+  -- 2. Desugar CROSS JOIN -> Replace with comma, leave WHERE unchanged
+
+  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident WHERE $whereCond ;) =>
+      `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $whereCond ;)
+
+  -----------------------------------------------------------------------------
+  -- CASE B: The query does NOT have a WHERE clause yet
+  -----------------------------------------------------------------------------
+  -- 3. Desugar INNER JOIN -> Initialize the WHERE clause with the ON condition
+
+  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond;) =>
+      `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $onCond ;)
+
+  -- 4. Desugar CROSS JOIN -> Replace with comma, no WHERE clause needed
+
+  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident;) =>
+      `(sql_query| SELECT $items FROM $f, $tNext:ident;)
+
+
+partial def getIdents (stx : TSyntax `sql_from) : List Name :=
+  match stx with
+  | `(sql_from| $db:ident) => [db.getId]
+  | `(sql_from| $f1:sql_from , $f2:sql_from) => getIdents f1 ++ getIdents f2
+  | _ => []
 
 inductive SQLTypeProxy where
   | int
@@ -233,8 +276,8 @@ def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Sy
     let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
     let filterExpr ← elabTypedRelMap [(schemaName, schema)] filter
     pure (filterExpr, schema)
-  | `(sql_query| SELECT * FROM $dbs:ident,*;) => do
-    let selectedDbs := dbs.getElems.map (·.getId) |>.toList
+  | `(sql_query| SELECT * FROM $dbs:sql_from;) => do
+    let selectedDbs := getIdents dbs
     let selectedSchemas ←  selectedDbs.mapM fun db => do
       let .some (schemaName, schema) :=
       schemas.findSome? (fun (name, schema) => if name == db then some (name, schema) else none) | throwError s!"Unknown table {db}"
