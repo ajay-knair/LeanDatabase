@@ -271,6 +271,7 @@ This is the main entry point for parsing a full SQL query, which includes the "S
 -/
 def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
     TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+  let stx ← liftMacroM <| expandMacros stx
   match stx with
   | `(sql_query| SELECT * FROM $db:ident WHERE $filter;) => do
     let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
@@ -379,3 +380,33 @@ def dataEg := json% {"schema": [{"name": "age", "type": "Int"}, {"name": "isActi
 -- #eval checkEquiv dataEg
 
 end LeanDatabase
+
+-- Test for macro expansion
+
+declare_syntax_cat blah
+
+syntax "Hi" : blah
+syntax "Hello" : blah
+syntax blah "," blah : blah
+
+macro_rules
+  | `(blah| Hi) => `(blah| Hello)
+
+
+partial def coutHellos : TSyntax `blah → TermElabM Nat := fun stx => do
+  let stx ← liftMacroM <| expandMacros stx
+  match stx with
+  | `(blah| Hello) => do
+    return 1
+  | `(blah| $x:blah , $y:blah) => do
+    let n1 ← coutHellos x
+    let n2 ← coutHellos y
+    return n1 + n2
+  | _ => throwError "Unexpected syntax"
+
+def testHi : TermElabM Nat := do
+  let stx ← `(blah| Hi)
+  let n ← coutHellos stx
+  return n
+
+#eval testHi
