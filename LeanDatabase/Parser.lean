@@ -143,7 +143,8 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
   else .string -- default to string for unrecognized types
 
 
-def withLetColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr)  (k : Array Expr → TermElabM α ) : TermElabM α := do
+def withLetColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr)
+    (k : Array Expr → TermElabM α ) : TermElabM α := do
   match schema with
   | [] => k #[]
   | ((name, colType), projExpr) :: rest => do
@@ -198,10 +199,16 @@ def sqlTypeListExpr (l: List SQLTypeProxy) : MetaM Expr := do
 -- #check mkAppOptM
 -- #check TypedTupleOfList
 
+def mkLambdaLetsFVars (vars : List (Expr × Array Expr)) (k: TermElabM Expr) : TermElabM Expr := do
+  match vars with
+  | [] => k
+  | (var, letVars) :: rest => do
+    mkLambdaFVars #[var] (← mkLetFVars letVars (← mkLambdaLetsFVars rest k))
 
-def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : Unit → TermElabM Expr) : TermElabM Expr := do
+def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy)))
+    (k : List (Expr × Array Expr) → TermElabM α) : TermElabM α := do
   match schemas with
-  | [] => k ()
+  | [] => k []
   | (schemaName, schema) :: rest => do
     let colTypes := schema.map (fun (_, colType) => colType)
     let listExpr ← sqlTypeListExpr colTypes
@@ -213,10 +220,12 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
           mkLambdaFVars #[typedTuple] value
     let schemaExprs := schema.zip colExprs
     withLocalDeclD (schemaName ++ `coords) type fun typedTuple => do
-      let inner ← withLetColumnVars schemaName schemaExprs typedTuple (
-        fun letVars => do mkLetFVars letVars (← withSchemasTupleVars rest k)
-        )
-      mkLambdaFVars #[typedTuple] inner
+      withLetColumnVars schemaName schemaExprs typedTuple
+        fun letVars => do
+      withSchemasTupleVars rest fun rest =>
+       k ((typedTuple, letVars) :: rest)
+
+
 
 def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM α)  : TermElabM α := do
   match schemas with
@@ -232,7 +241,8 @@ def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
 
 -- This is the "WHERE" part of a SQL query, which is a function from a TypedRelation to a TypedRelation. This is to be applied to the database, which may be a single schema or built from multiple schemas.
 def elabTypedTupleFilter (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
-  withSchemasTupleVars [(schemaName, schema)] (fun _ => elabTermEnsuringType stx (mkConst ``Bool))
+  withSchemasTupleVars [(schemaName, schema)] (fun vars =>
+    mkLambdaLetsFVars vars (elabTermEnsuringType stx (mkConst ``Bool)))
 
 def parseTypedTupleFilter  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
@@ -241,7 +251,7 @@ def parseTypedTupleFilter  (schemaStr : List (String × String)) (str : String) 
 
 -- #check selection
 
-def elabTypedRelMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
+def elabTypedRelWithMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
   withSchemasRelVars schemas fun relVars => do
     let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
     let [(schemaName, schema)] := schemas | throwError "Expected exactly one schema"
@@ -257,7 +267,7 @@ def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (s
   let schemas := schemasStr.map (fun (schemaName, schema) =>
     let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
     (schemaName.toName, schema'))
-  elabTypedRelMap schemas stx
+  elabTypedRelWithMap schemas stx
 
 def TypedTuple.cons {n : Nat} {colType : Fin n → Type} (a: α) (tuple : TypedTuple colType) :
     TypedTuple (Fin.cons α colType) := Fin.cons a tuple
@@ -271,6 +281,16 @@ def exprTypedTuple : List Expr → MetaM Expr
   | e :: es => do
     let rest ← exprTypedTuple es
     mkAppM ``TypedTuple.cons #[e, rest]
+
+def elabTypedTupleProjection (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (cols: List Syntax.Term) :
+  TermElabM (Expr × List SQLTypeProxy) := do
+  withSchemasTupleVars [(schemaName, schema)] (fun vars => do
+    let colExprsTypes ← cols.mapM elabAsSql
+    let colExprs := colExprsTypes.map (fun (_, e) => e)
+    let types := colExprsTypes.map (fun (t, _) => t)
+    let e ← mkLambdaLetsFVars vars (exprTypedTuple colExprs)
+    return (e, types)
+  )
 
 section product
 
@@ -316,7 +336,7 @@ def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Sy
   match stx with
   | `(sql_query| SELECT * FROM $db:ident WHERE $filter;) => do
     let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
-    let filterExpr ← elabTypedRelMap [(schemaName, schema)] filter
+    let filterExpr ← elabTypedRelWithMap [(schemaName, schema)] filter
     pure (filterExpr, schema)
   | `(sql_query| SELECT * FROM $dbs:sql_from;) => do
     let selectedDbs := getIdents dbs
