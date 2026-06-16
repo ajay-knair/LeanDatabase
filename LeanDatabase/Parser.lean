@@ -22,6 +22,15 @@ syntax ident : sql_col
 syntax term "AS" ident : sql_col
 syntax sql_col,* : sql_cols
 
+def sqlColTerm : TSyntax `sql_col → Syntax.Term
+  | `(sql_col| $col:ident) => col
+  | `(sql_col| $col:term AS $_:ident) => col
+  | _ => unreachable!
+
+def sqlColName : TSyntax `sql_col → Name
+  | `(sql_col| $col:ident) => col.getId
+  | `(sql_col| $_:term AS $x:ident) => x.getId
+  | _ => unreachable!
 
 -- Base Cases (The atomic sources of data)
 syntax ident : sql_from                               -- 1. Standard table name
@@ -249,6 +258,19 @@ def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (s
     let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
     (schemaName.toName, schema'))
   elabTypedRelMap schemas stx
+
+def TypedTuple.cons {n : Nat} {colType : Fin n → Type} (a: α) (tuple : TypedTuple colType) :
+    TypedTuple (Fin.cons α colType) := Fin.cons a tuple
+
+def colTypeNil : Fin 0 → Type := fun ⟨i, h⟩ => by simp at h
+
+def TypedTuple.nil : TypedTuple colTypeNil := fun ⟨i, h⟩ => by simp at h
+
+def exprTypedTuple : List Expr → MetaM Expr
+  | [] => return mkConst ``TypedTuple.nil
+  | e :: es => do
+    let rest ← exprTypedTuple es
+    mkAppM ``TypedTuple.cons #[e, rest]
 
 section product
 
