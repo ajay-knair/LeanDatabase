@@ -240,34 +240,33 @@ def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (
 -- #eval List.finRange 3
 
 -- This is the "WHERE" part of a SQL query, which is a function from a TypedRelation to a TypedRelation. This is to be applied to the database, which may be a single schema or built from multiple schemas.
-def elabTypedTupleFilter (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (stx: Syntax) : TermElabM Expr := do
-  withSchemasTupleVars [(schemaName, schema)] (fun vars =>
+def elabTypedTupleFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
+  withSchemasTupleVars schemas (fun vars =>
     mkLambdaLetsFVars vars (elabTermEnsuringType stx (mkConst ``Bool)))
 
 def parseTypedTupleFilter  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
-  elabTypedTupleFilter `schema schema stx
+  elabTypedTupleFilter [(`schema, schema)] stx
 
--- #check selection
+#check restriction
 
-def elabTypedRelWithMap (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
+def elabTypedRelFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
   withSchemasRelVars schemas fun relVars => do
     let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
-    let [(schemaName, schema)] := schemas | throwError "Expected exactly one schema"
-    let filter ← elabTypedTupleFilter schemaName schema stx
+    let filter ← elabTypedTupleFilter schemas stx
     -- logInfo m!"Elaborated filter type: {← ppExpr <| ← inferType filter}"
-    let e ← mkAppM ``selection #[filter, relVar]
+    let e ← mkAppM ``restriction #[filter, relVar]
     let vars := relVars.map (fun (relVar, _, _) => relVar)
     mkLambdaFVars vars.toArray e
   -- logInfo m!"Elaborated relation map type: {← ppExpr <| ← inferType outer}"
 
-def parseTypedRelMap  (schemasStr : List (String × List (String × String))) (str : String) : TermElabM Expr := do
+def parseTypedRelFilter  (schemasStr : List (String × List (String × String))) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schemas := schemasStr.map (fun (schemaName, schema) =>
     let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
     (schemaName.toName, schema'))
-  elabTypedRelWithMap schemas stx
+  elabTypedRelFilter schemas stx
 
 def TypedTuple.cons {n : Nat} {colType : Fin n → Type} (a: α) (tuple : TypedTuple colType) :
     TypedTuple (Fin.cons α colType) := Fin.cons a tuple
@@ -282,9 +281,9 @@ def exprTypedTuple : List Expr → MetaM Expr
     let rest ← exprTypedTuple es
     mkAppM ``TypedTuple.cons #[e, rest]
 
-def elabTypedTupleProjection (schemaName : Name) (schema : List (Name × SQLTypeProxy)) (cols: List Syntax.Term) :
+def elabTypedTupleProjection (schemas : List (Name × List (Name × SQLTypeProxy))) (cols: List Syntax.Term) :
   TermElabM (Expr × List SQLTypeProxy) := do
-  withSchemasTupleVars [(schemaName, schema)] (fun vars => do
+  withSchemasTupleVars schemas (fun vars => do
     let colExprsTypes ← cols.mapM elabAsSql
     let colExprs := colExprsTypes.map (fun (_, e) => e)
     let types := colExprsTypes.map (fun (t, _) => t)
@@ -292,11 +291,15 @@ def elabTypedTupleProjection (schemaName : Name) (schema : List (Name × SQLType
     return (e, types)
   )
 
-section product
+section helpers
 
 variable {n m : Nat}
 variable {colType1 : Fin n → Type} [∀ i, DecidableEq (colType1 i)]
 variable {colType2 : Fin m → Type} [∀ i, DecidableEq (colType2 i)]
+
+def TypedRelation.map (f : TypedTuple colType1 → TypedTuple colType2) (labels : Fin m → String)
+    (r : TypedRelation colType1) :
+  TypedRelation colType2 := {labels := labels, rows := r.rows.image f}
 
 abbrev colTypeOfProduct (colType1: Fin n → Type) (colType2: Fin m → Type) : Fin (n + m) →  Type :=
   fun ⟨i, h⟩ =>
@@ -324,8 +327,25 @@ def rightProj (t : TypedTuple (colTypeOfProduct colType1 colType2)) : TypedTuple
  simp [colTypeOfProduct] at t'
  exact t'
 
+end helpers
 
-end product
+-- this is really a stub for now, we need to handle multiple schemas
+def elabTypedRelFilterProj (schemas : List (Name × List (Name × SQLTypeProxy)))
+    (stx: Syntax) (colStxs : List (TSyntax `sql_col)) : TermElabM Expr := do
+  withSchemasRelVars schemas fun relVars => do
+    let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
+    let filter ← elabTypedTupleFilter schemas stx
+    -- logInfo m!"Elaborated filter type: {← ppExpr <| ← inferType filter}"
+    let e ← mkAppM ``restriction #[filter, relVar]
+    let cols := colStxs.map sqlColTerm
+    let names := colStxs.map sqlColName
+    let names := names.map (·.toString)
+    let nameExpr := toExpr names
+    let (m, _) ← elabTypedTupleProjection schemas cols
+    let e' ← mkAppM ``TypedRelation.map #[m, nameExpr, e]
+    let vars := relVars.map (fun (relVar, _, _) => relVar)
+    mkLambdaFVars vars.toArray e'
+
 
 /--
 This is the main entry point for parsing a full SQL query, which includes the "SELECT", "FROM", and "WHERE" clauses. For simplicity, we only handle "SELECT *" and a single table in the "FROM" clause, but this can be extended in the future. The output is an expression representing the filter to be applied to the database, along with the schema of the table returned.
@@ -336,7 +356,7 @@ def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Sy
   match stx with
   | `(sql_query| SELECT * FROM $db:ident WHERE $filter;) => do
     let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
-    let filterExpr ← elabTypedRelWithMap [(schemaName, schema)] filter
+    let filterExpr ← elabTypedRelFilter [(schemaName, schema)] filter
     pure (filterExpr, schema)
   | `(sql_query| SELECT * FROM $dbs:sql_from;) => do
     let selectedDbs := getIdents dbs
@@ -360,9 +380,9 @@ def egTypedTupleFilter := parseTypedTupleFilter [("age", "Int"), ("isActive", "B
 
 def egTypedTupleFilter' := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
 
-def egTypedRelMap := parseTypedRelMap [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive"
+def egTypedRelFilter := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive"
 
-def egTypedRelMap' := parseTypedRelMap [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive && age > 20"
+def egTypedRelFilter' := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive && age > 20"
 
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
@@ -372,15 +392,15 @@ elab "egTypedTupleFilter%%" : term => do
   let e ← egTypedTupleFilter'
   return e
 
-elab "egTypedRelMap%" : term => do
-  let e ← egTypedRelMap
+elab "egTypedRelFilter%" : term => do
+  let e ← egTypedRelFilter
   return e
 
-elab "egTypedRelMap%%" : term => do
-  let e ← egTypedRelMap'
+elab "egTypedRelFilter%%" : term => do
+  let e ← egTypedRelFilter'
   return e
 
--- #check egTypedRelMap%
+-- #check egTypedRelFilter%
 
 -- #check egTypedTupleFilter%%
 
@@ -395,7 +415,7 @@ example : egTypedTupleFilter% = egTypedTupleFilter%% := by
   grind
 
 set_option pp.funBinderTypes true in
-example : egTypedRelMap% = egTypedRelMap%% := by
+example : egTypedRelFilter% = egTypedRelFilter%% := by
   grind
 
 def checkEquiv (data: Json) : TermElabM Bool := do
