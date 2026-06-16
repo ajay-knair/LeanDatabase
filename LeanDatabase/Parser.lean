@@ -83,6 +83,8 @@ def SQLTypeProxy.type : SQLTypeProxy → Type
   | .float => Rat
   | .string => String
 
+def SQLTypeProxy.list : List SQLTypeProxy := [.int, .bool, .float, .string]
+
 instance (t : SQLTypeProxy) : DecidableEq t.type :=
   match t with
   | .int => inferInstance
@@ -96,6 +98,20 @@ def typeExpr (t : SQLTypeProxy) : Expr :=
   | .bool => mkConst ``Bool
   | .float => mkConst ``Rat
   | .string => mkConst ``String
+
+def elabAsSql (stx: Syntax) : TermElabM (SQLTypeProxy × Expr) := do
+  let res? : Option (SQLTypeProxy × Expr) ← SQLTypeProxy.list.findSomeM? (fun t => do
+    let typeExpr := typeExpr t
+    try
+      let e ← withoutErrToSorry do
+        elabTermEnsuringType stx typeExpr
+      Term.synthesizeSyntheticMVarsNoPostponing
+      pure (t, e)
+    catch _ => pure none
+  )
+  match res? with
+  | some res => pure res
+  | none => throwError s!"Failed to parse type in AS clause: {← PrettyPrinter.ppCategory `term stx}"
 
 def sqlProxy (sqlType : String) : SQLTypeProxy :=
   let s := sqlType.toLower
@@ -112,6 +128,7 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
   else if s.startsWith "smallint" then .int
   else if s.startsWith "text" then .string
   else if s.startsWith "char" then .string
+  else if s.startsWith "varchar" then .string
   else if s.startsWith "date" then .string
   else if s.startsWith "timestamp" then .string
   else .string -- default to string for unrecognized types
