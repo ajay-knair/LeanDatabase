@@ -8,6 +8,8 @@ import LeanDatabase.TypedRelation
 `Fin.append colType1 colType2`. All the dependent-`Fin.append` plumbing — the `DecidableEq`/
 `ToString` instances for the combined column family, the injectivity of tuple-gluing, and the
 inverse `splitTuple` — lives here, so the join layer can stay schema-agnostic.
+
+The column names will be full names like `table1.age` and `table2.age` hence no clashing of labels will occur.
 -/
 
 namespace LeanDatabase
@@ -57,7 +59,7 @@ Note: we rename labels if they are same bases on given aliases prefix
 -/
 
 @[simp, grind .]
-def crossProductRel (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (table1_alias: String := "L") (table2_alias: String := "R") :
+def crossProductRel (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) :
     TypedRelation (Fin.append colType1 colType2) :=
 
   -- Check if labels are not same, then prefixLabel them
@@ -66,12 +68,9 @@ def crossProductRel (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) 
 
   let hasCollision := l1_list.any (fun label => l2_list.contains label)
 
-  let l1_labels := if hasCollision then (prefixLabels table1_alias r1).labels else r1.labels
-  let l2_labels := if hasCollision then (prefixLabels table2_alias r2).labels else r2.labels
-
   {
     -- Combine the determined labels
-    labels := Fin.append l1_labels l2_labels,
+    labels := Fin.append r1.labels r2.labels
 
     -- Combine Rows (Cartesian Product)
     rows := (r1.rows ×ˢ r2.rows).image (fun (pair : TypedTuple colType1 × TypedTuple colType2) =>
@@ -121,11 +120,9 @@ theorem combine_tuples_injective :
 -- Theorem: Cardinality of Cross Product
 -- |R1 × R2| = |R1| * |R2|
 -- "The size of the product is the product of the sizes"
-theorem crossProduct_card (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) :
-    (crossProductRel r1 r2 a1 a2).rows.card = r1.rows.card * r2.rows.card := by
-  simp_all only [crossProductRel, List.contains_eq_mem, List.mem_ofFn, List.any_eq_true,
-    decide_eq_true_eq, exists_exists_eq_and, prefixLabels]
+theorem crossProduct_card (r1 : TypedRelation colType1) (r2 : TypedRelation colType2):
+    (crossProductRel r1 r2).rows.card = r1.rows.card * r2.rows.card := by
+  simp_all only [crossProductRel]
   rw [Finset.card_image_of_injective]
   · simp only [Finset.card_product]
   · simp only [combine_tuples_injective]
@@ -134,18 +131,16 @@ theorem crossProduct_card (r1 : TypedRelation colType1) (r2 : TypedRelation colT
 -- Theorem: Zero Propagation (Left)
 -- ∅ × R2 = ∅
 -- "Crossing with an empty table yields an empty table"
-theorem crossProduct_empty_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) (h : r1.rows = ∅) :
-    (crossProductRel r1 r2 a1 a2).rows = ∅ := by
+theorem crossProduct_empty_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (h : r1.rows = ∅) :
+    (crossProductRel r1 r2).rows = ∅ := by
   simp only [crossProductRel, h]
   grind
 
 -- Theorem: Zero Propagation (Right)
 -- R1 × ∅ = ∅
 -- "Crossing with an empty table yields an empty table"
-theorem crossProduct_empty_right (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) (h : r2.rows = ∅) :
-    (crossProductRel r1 r2 a1 a2).rows = ∅ := by
+theorem crossProduct_empty_right (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)  (h : r2.rows = ∅) :
+    (crossProductRel r1 r2).rows = ∅ := by
   simp only [crossProductRel, h]
   grind
 
@@ -194,8 +189,8 @@ omit [∀ i, DecidableEq (colType1 i)] [∀ i, DecidableEq (colType2 i)] in
 -- t ∈ (R1 × R2) ↔ t_left ∈ R1 ∧ t_right ∈ R2
 -- "A row is in the product if and only if its parts are in the source tables"
 theorem mem_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) (t : TypedTuple (Fin.append colType1 colType2)) :
-    t ∈ (crossProductRel r1 r2 a1 a2).rows ↔
+  (t : TypedTuple (Fin.append colType1 colType2)) :
+    t ∈ (crossProductRel r1 r2).rows ↔
     (splitTuple t).1 ∈ r1.rows ∧ (splitTuple t).2 ∈ r2.rows := by
 
   simp only [crossProductRel, Finset.mem_image]
@@ -275,8 +270,8 @@ theorem swapAppend_swapAppend (t : TypedTuple (Fin.append colType1 colType2)) :
   | right k => simp only [swapAppend, splitTuple, Fin.addCases_left, Fin.addCases_right]; grind
 
 -- **Cross-product commutativity.** The two argument orders have the same row-set up to `swapAppend`.
-theorem crossProduct_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String) :
-    (crossProductRel r1 r2 a1 a2).rows.image swapAppend = (crossProductRel r2 r1 a2 a1).rows := by
+theorem crossProduct_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) :
+    (crossProductRel r1 r2).rows.image swapAppend = (crossProductRel r2 r1).rows := by
   ext u
   simp only [Finset.mem_image]
   rw [mem_crossProduct]
@@ -316,9 +311,9 @@ def assocAppend (t : TypedTuple (Fin.append (Fin.append colType1 colType2) colTy
 
 -- **Cross-product associativity.** Left- and right-nested cross products agree up to `assocAppend`.
 theorem crossProduct_assoc (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (r3 : TypedRelation colType3) (a b c d : String) :
-    (crossProductRel (crossProductRel r1 r2 a b) r3 c d).rows.image assocAppend
-      = (crossProductRel r1 (crossProductRel r2 r3 a b) c d).rows := by
+    (r3 : TypedRelation colType3) :
+    (crossProductRel (crossProductRel r1 r2) r3).rows.image assocAppend
+      = (crossProductRel r1 (crossProductRel r2 r3)).rows := by
   ext u
   simp only [Finset.mem_image, mem_crossProduct]
   constructor

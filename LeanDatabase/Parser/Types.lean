@@ -26,6 +26,7 @@ inductive SQLTypeProxy where
   | bool
   | float
   | string
+  | timestamp
 deriving Repr, DecidableEq, ToExpr
 
 
@@ -36,8 +37,9 @@ def SQLTypeProxy.type : SQLTypeProxy → Type
   | .bool => Bool
   | .float => Rat
   | .string => String
+  | .timestamp => String
 
-def SQLTypeProxy.list : List SQLTypeProxy := [.int, .bool, .float, .string]
+def SQLTypeProxy.list : List SQLTypeProxy := [.int, .bool, .float, .string, .timestamp]
 
 instance (t : SQLTypeProxy) : DecidableEq t.type :=
   match t with
@@ -45,6 +47,7 @@ instance (t : SQLTypeProxy) : DecidableEq t.type :=
   | .bool => inferInstance
   | .float => inferInstance
   | .string => inferInstance
+  | .timestamp => inferInstance
 
 /-- The `Expr` of the Lean type a proxy denotes (the term-level mirror of `SQLTypeProxy.type`). -/
 def typeExpr (t : SQLTypeProxy) : Expr :=
@@ -53,6 +56,7 @@ def typeExpr (t : SQLTypeProxy) : Expr :=
   | .bool => mkConst ``Bool
   | .float => mkConst ``Rat
   | .string => mkConst ``String
+  | .timestamp => mkConst ``String
 
 /-- Map a DDL type string (`VARCHAR(…)`, `BIGINT`, `TIMESTAMP`, …) to a proxy. Matched by prefix,
 defaulting to `string` for anything unrecognized. -/
@@ -73,7 +77,7 @@ def sqlProxy (sqlType : String) : SQLTypeProxy :=
   else if s.startsWith "char" then .string
   else if s.startsWith "varchar" then .string
   else if s.startsWith "date" then .string
-  else if s.startsWith "timestamp" then .string
+  else if s.startsWith "timestamp" then .timestamp
   else .string -- default to string for unrecognized types
 
 /-- A schema as `Fin n → Type`, indexing a `List SQLTypeProxy` positionally. This is the canonical

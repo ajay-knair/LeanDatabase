@@ -26,11 +26,11 @@ This join operation is simply filtering of cross product for given condition
 -/
 
 @[simp, grind .]
-def join (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (table1_alias: String := "L") (table2_alias: String := "R")
+def join (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
     (condition : TypedTuple (Fin.append colType1 colType2) → Bool) :
     TypedRelation (Fin.append colType1 colType2) :=
 
-  let product := crossProductRel r1 r2 table1_alias table2_alias
+  let product := crossProductRel r1 r2
   {
     labels := product.labels,
     rows   := product.rows.filter (fun t => condition t)
@@ -39,28 +39,28 @@ def join (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (table1_ali
 -- Theorem: Join Empty Left
 -- ∅ ⋈ R = ∅
 theorem join_empty_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String)
+    (condition : TypedTuple (Fin.append colType1 colType2) → Bool)
     (h : r1.rows = ∅) :
-    (join r1 r2 a1 a2 condition).rows = ∅ := by
+    (join r1 r2 condition).rows = ∅ := by
   grind
 
 -- Theorem: Join Empty Right
 -- R ⋈ ∅ = ∅
 theorem join_empty_right (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String)
+    (condition : TypedTuple (Fin.append colType1 colType2) → Bool)
     (h : r2.rows = ∅) :
-    (join r1 r2 a1 a2 condition).rows = ∅ := by
+    (join r1 r2 condition).rows = ∅ := by
   grind
 
 -- Theorem: Join Size Upper Bound
 -- |R ⋈ S| <= |R| * |S|
 -- "A join can never create more rows than the cross product."
 theorem join_card_bound (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 condition).rows.card ≤ r1.rows.card * r2.rows.card := by
+    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) :
+    (join r1 r2 condition).rows.card ≤ r1.rows.card * r2.rows.card := by
   simp only [join]
-  have h_filter : (Finset.filter (fun t => condition t) (crossProductRel r1 r2 a1 a2).rows).card
-                  ≤ (crossProductRel r1 r2 a1 a2).rows.card := by
+  have h_filter : (Finset.filter (fun t => condition t) (crossProductRel r1 r2).rows).card
+                  ≤ (crossProductRel r1 r2).rows.card := by
     apply Finset.card_filter_le
   rw [crossProduct_card] at h_filter
   exact h_filter
@@ -72,17 +72,16 @@ theorem join_card_bound (r1 : TypedRelation colType1) (r2 : TypedRelation colTyp
 theorem join_filter_merge (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
     (c : TypedTuple (Fin.append colType1 colType2) → Bool) -- Join Condition
     (p : TypedTuple (Fin.append colType1 colType2) → Bool) -- Filter Condition
-    (a1 a2 : String) :
-
-    (join r1 r2 a1 a2 c).rows.filter (fun t => p t) =
-    (join r1 r2 a1 a2 (fun t => c t && p t)).rows := by
+    :
+    (join r1 r2 c).rows.filter (fun t => p t) =
+    (join r1 r2 (fun t => c t && p t)).rows := by
   grind
 
 -- Theorem: Join is Subset of Cross Product
 -- (R ⋈ S) ⊆ (R x S)
 theorem join_subset_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 condition).rows ⊆ (crossProductRel r1 r2 a1 a2).rows := by
+    (condition : TypedTuple (Fin.append colType1 colType2) → Bool) :
+    (join r1 r2 condition).rows ⊆ (crossProductRel r1 r2).rows := by
   grind
 
 -- Theorem: Join Commutativity (up to the schema half-swap)
@@ -92,9 +91,9 @@ theorem join_subset_crossProduct (r1 : TypedRelation colType1) (r2 : TypedRelati
 --  dependent schemas (`Fin.append c1 c2` vs `Fin.append c2 c1`), so equality is stated on `.rows`
 --  modulo `swapAppend`.
 theorem join_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (cond : TypedTuple (Fin.append colType1 colType2) → Bool) (a1 a2 : String) :
-    (join r1 r2 a1 a2 cond).rows.image swapAppend
-      = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows := by
+    (cond : TypedTuple (Fin.append colType1 colType2) → Bool) :
+    (join r1 r2 cond).rows.image swapAppend
+      = (join r2 r1 (fun u => cond (swapAppend u))).rows := by
   ext u
   simp only [join, Finset.mem_image, Finset.mem_filter]
   constructor
@@ -109,21 +108,21 @@ theorem join_comm (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
 
 -- Theorem: Join condition congruence — pointwise-equal conditions give the same join.
 -- (Closes `ON a=b` vs `ON b=a` once the two conditions are shown equal, e.g. by `eq_comm`.)
-theorem join_cond_congr (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+theorem join_cond_congr (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
     (c c' : TypedTuple (Fin.append colType1 colType2) → Bool) (h : ∀ t, c t = c' t) :
-    join r1 r2 a1 a2 c = join r1 r2 a1 a2 c' := by
+    join r1 r2 c = join r1 r2 c' := by
   have : c = c' := funext h; rw [this]
 
 -- Theorem: first-order **join-order swap under a projection**. Projecting a join and projecting the
 -- operand-swapped join (with condition + projection transported through `swapAppend`) give the same
 -- rows — a directly usable corollary of `join_comm` for "same query, operands swapped, then SELECT".
 theorem join_comm_image {γ : Type} [DecidableEq γ]
-    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2) (a1 a2 : String)
+    (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
     (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
     (proj : TypedTuple (Fin.append colType1 colType2) → γ) :
-    (join r1 r2 a1 a2 cond).rows.image proj
-      = (join r2 r1 a2 a1 (fun u => cond (swapAppend u))).rows.image (fun u => proj (swapAppend u)) := by
-  rw [← join_comm r1 r2 cond a1 a2, Finset.image_image]
+    (join r1 r2 cond).rows.image proj
+      = (join r2 r1 (fun u => cond (swapAppend u))).rows.image (fun u => proj (swapAppend u)) := by
+  rw [← join_comm r1 r2 cond, Finset.image_image]
   apply Finset.image_congr
   intro t _
   simp only [Function.comp_apply, swapAppend_swapAppend]
@@ -131,10 +130,10 @@ theorem join_comm_image {γ : Type} [DecidableEq γ]
 -- Theorem: **selection pushdown into the left join input** — a `WHERE` reading only the left
 -- columns can be applied to the left table before joining: `σ_{pL∘left}(R ⋈ S) = (σ_{pL} R) ⋈ S`.
 theorem restriction_join_left (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
+    (cond : TypedTuple (Fin.append colType1 colType2) → Bool)
     (pL : TypedTuple colType1 → Bool) :
-    restriction (fun t => pL (splitTuple t).1) (join r1 r2 a1 a2 cond)
-      = join (restriction pL r1) r2 a1 a2 cond := by
+    restriction (fun t => pL (splitTuple t).1) (join r1 r2 cond)
+      = join (restriction pL r1) r2 cond := by
   apply TypedRelation.ext
   · rfl
   · ext t
@@ -228,9 +227,9 @@ theorem not_in_subquery_eq_antijoin {β : Type} [DecidableEq β]
 -- EXISTS (… cond)`) equals the set of left-rows of `R ⋈_cond S` — the bridge between the
 -- subquery form and the `JOIN … (GROUP BY/DISTINCT)` form.
 theorem semijoin_eq_join_image (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (a1 a2 : String) (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) :
+  (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) :
     (semijoin r1 r2 cond).rows
-      = (join r1 r2 a1 a2 (fun t => cond (splitTuple t).1 (splitTuple t).2)).rows.image
+      = (join r1 r2 (fun t => cond (splitTuple t).1 (splitTuple t).2)).rows.image
           (fun t => (splitTuple t).1) := by
   ext r
   simp only [semijoin, restriction, Finset.mem_filter, decide_eq_true_eq, Finset.mem_image,
@@ -290,38 +289,35 @@ variable [∀ i, Inhabited (colType1 i)] [∀ i, Inhabited (colType2 i)]
 /-- `R ⟕ S` (`LEFT OUTER JOIN`): inner-join matches, plus every unmatched `R` row padded with
 `NULL`s on the `S` columns. Output schema `R ++ Option S`. -/
 @[simp] def leftOuterJoin (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool)
-    (a1 : String := "L") (a2 : String := "R") :
+    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) :
     TypedRelation (Fin.append colType1 (fun i => Option (colType2 i))) :=
   union
-    (join r1 (liftNullable r2) a1 a2
+    (join r1 (liftNullable r2)
       (fun t => cond (splitTuple t).1 (fun i => ((splitTuple t).2 i).get!)))
-    (crossProductRel (antijoin r1 r2 cond) (nullRow colType2 r2.labels) a1 a2)
+    (crossProductRel (antijoin r1 r2 cond) (nullRow colType2 r2.labels))
 
 /-- `R ⟖ S` (`RIGHT OUTER JOIN`): the mirror image — unmatched `S` rows padded with `NULL`s on the
 `R` columns. Output schema `Option R ++ S`. -/
 @[simp] def rightOuterJoin (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool)
-    (a1 : String := "L") (a2 : String := "R") :
+    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool) :
     TypedRelation (Fin.append (fun i => Option (colType1 i)) colType2) :=
   union
-    (join (liftNullable r1) r2 a1 a2
+    (join (liftNullable r1) r2
       (fun t => cond (fun i => ((splitTuple t).1 i).get!) (splitTuple t).2))
-    (crossProductRel (nullRow colType1 r1.labels) (antijoin r2 r1 (fun s t => cond t s)) a1 a2)
+    (crossProductRel (nullRow colType1 r1.labels) (antijoin r2 r1 (fun s t => cond t s)))
 
 /-- `R ⟗ S` (`FULL OUTER JOIN`): matches with both sides present, plus the unmatched rows of each
 side padded with `NULL`s on the other. Output schema `Option R ++ Option S`. -/
 @[simp] def fullOuterJoin (r1 : TypedRelation colType1) (r2 : TypedRelation colType2)
-    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool)
-    (a1 : String := "L") (a2 : String := "R") :
+    (cond : TypedTuple colType1 → TypedTuple colType2 → Bool):
     TypedRelation (Fin.append (fun i => Option (colType1 i)) (fun i => Option (colType2 i))) :=
   union
     (union
-      (join (liftNullable r1) (liftNullable r2) a1 a2
+      (join (liftNullable r1) (liftNullable r2)
         (fun t => cond (fun i => ((splitTuple t).1 i).get!) (fun i => ((splitTuple t).2 i).get!)))
-      (crossProductRel (liftNullable (antijoin r1 r2 cond)) (nullRow colType2 r2.labels) a1 a2))
+      (crossProductRel (liftNullable (antijoin r1 r2 cond)) (nullRow colType2 r2.labels)))
     (crossProductRel (nullRow colType1 r1.labels)
-      (liftNullable (antijoin r2 r1 (fun s t => cond t s))) a1 a2)
+      (liftNullable (antijoin r2 r1 (fun s t => cond t s))))
 
 end OuterJoins
 
