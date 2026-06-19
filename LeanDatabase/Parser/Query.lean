@@ -60,13 +60,13 @@ def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Sy
 
 /-! ## Smoke tests — the parser elaborates, and `grind` proves the equivalences -/
 
-def egTypedTupleFilter := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive"
+def egTypedTupleFilter := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool"), ("height", "Float")] "age > 30 && isActive"
 
-def egTypedTupleFilter' := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool")] "age > 30 && isActive && age > 20"
+def egTypedTupleFilter' := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool"), ("height", "Float")] "age > 30 && isActive && age > 20"
 
-def egTypedRelFilter := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive"
+def egTypedRelFilter := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && height < 180"
 
-def egTypedRelFilter' := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool")])] "age > 30 && isActive && age > 20"
+def egTypedRelFilter' := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && age > 20 && height < 180"
 
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
