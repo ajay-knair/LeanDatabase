@@ -45,10 +45,9 @@ def withLetColumnVars (schemaName: Name) (schema : List ((Name × SQLTypeProxy) 
     withLetDecl funcName funcType projExpr fun funcVar => do
       let colExpr ← mkAppM' funcVar #[typedTupleVar]
       let colExpr ← reduce colExpr
-      withLetDecl fullName colTypeExpr colExpr fun localVar => do
-        withLetDecl name colTypeExpr localVar fun localVar' => do
-          let letVars := #[funcVar, localVar, localVar']
-          withLetColumnVars schemaName rest typedTupleVar (fun restExpr => k (letVars ++ restExpr))
+      withLetDecl name colTypeExpr colExpr fun localVar => do
+        let letVars := #[funcVar, localVar]
+        withLetColumnVars schemaName rest typedTupleVar (fun restExpr => k (letVars ++ restExpr))
 
 def mkLambdaLetsFVars (vars : List (Expr × Array Expr)) (k: TermElabM Expr) : TermElabM Expr := do
   match vars with
@@ -63,6 +62,24 @@ def schemaWithFullNames (schemaName: Name) (schema : List (Name × SQLTypeProxy)
     let fullName :=
       if schemaName.isPrefixOf name then name else schemaName ++ name
     (fullName, colType))
+
+theorem schemaWithFullNames_eq (schemaName: Name) (schema : List (Name × SQLTypeProxy)) :
+    schemaWithFullNames schemaName schema = schema.map (fun (name, colType) =>
+      let fullName := if schemaName.isPrefixOf name then name else schemaName ++ name
+      (fullName, colType)) := by rfl
+
+theorem schemaWithFullNames_length (schemaName: Name) (schema : List (Name × SQLTypeProxy)) :
+    (schemaWithFullNames schemaName schema).length = schema.length := by simp [schemaWithFullNames]
+
+def expandNames (labels : List Name) (stx: Syntax) : MetaM Syntax := do
+  let pairs ← labels.filterMapM fun label => do
+    let shorter? := label.components.getLast?
+    pure <| shorter?.map fun shorter => (shorter, label)
+  stx.replaceM fun id => do
+    let idName := id.getId
+    match pairs.find? (fun (shorter, _) => shorter == idName) with
+    | some (_, full) => pure <| mkIdent full
+    | none => pure none
 
 def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy)))
     (k : List (Expr × Array Expr) → TermElabM α) : TermElabM α := do
@@ -83,6 +100,7 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy)))
         fun letVars => do
       withSchemasTupleVars rest fun rest =>
        k ((typedTuple, letVars) :: rest)
+termination_by schemas.length
 
 def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM α)  : TermElabM α := do
   match schemas with

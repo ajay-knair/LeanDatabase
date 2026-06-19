@@ -16,6 +16,9 @@ namespace LeanDatabase
 def parseTypedTupleFilter  (schemaStr : List (String × String)) (str : String) : TermElabM Expr := do
   let .ok stx := Parser.runParserCategory (← getEnv) `term str | throwError "Failed to parse filter expression: {str}"
   let schema := schemaStr.map (fun (name, colType) => (name.toName, sqlProxy colType))
+  let schema := schemaWithFullNames `schema schema
+  let labels := schema.map (fun (name, _) => name)
+  let stx ← expandNames labels stx
   elabTypedTupleFilter [(`schema, schema)] stx
 
 def parseTypedRelFilter  (schemasStr : List (String × List (String × String))) (str : String) : TermElabM Expr := do
@@ -23,6 +26,9 @@ def parseTypedRelFilter  (schemasStr : List (String × List (String × String)))
   let schemas := schemasStr.map (fun (schemaName, schema) =>
     let schema' := schema.map (fun (name, colType) => (name.toName, sqlProxy colType))
     (schemaName.toName, schema'))
+  let schemas := schemas.map (fun (schemaName, schema) => (schemaName, schemaWithFullNames schemaName schema))
+  let labels := schemas.foldl (fun acc (_, schema) => acc ++ schema.map (fun (name, _) => name)) []
+  let stx ← expandNames labels stx
   elabTypedRelFilter schemas stx
 
 /--
