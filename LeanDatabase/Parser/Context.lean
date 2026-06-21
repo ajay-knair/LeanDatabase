@@ -100,15 +100,15 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
       withSchemasTupleVars rest usedName fun rest =>
        k ((typedTuple, letVars) :: rest)
 
-def withSchemasRelVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM α)  : TermElabM α := do
+def withTableVars (schemas : List (Name × List (Name × SQLTypeProxy)))  (k : List (Expr × Name × List (Name × SQLTypeProxy)) →  TermElabM α)  : TermElabM α := do
   match schemas with
   | [] => k []
-  | (schemaName, schema) :: rest => do
-    let colTypes := schema.map (fun (_, colType) => colType)
+  | (tableName, columns) :: rest => do
+    let colTypes := columns.map (fun (_, colType) => colType)
     let listExpr ← sqlTypeListExpr colTypes
     let type ← mkAppM ``TypedRelationOfList #[listExpr]
-    withLocalDeclD schemaName type fun typedRel => do
-      withSchemasRelVars rest ((fun l ↦ k ((typedRel, schemaName, schema) :: l)))
+    withLocalDeclD tableName type fun typedRel => do
+      withTableVars rest ((fun l ↦ k ((typedRel, tableName, columns) :: l)))
 
 /-! ## Building output tuples -/
 
@@ -172,13 +172,22 @@ def elabTypedTupleFilter (schemas : List (Name × List (Name × SQLTypeProxy))) 
   withSchemasTupleVars schemas (stx.hasIdent) (fun vars =>
     mkLambdaLetsFVars vars (elabTermEnsuringType stx (mkConst ``Bool)))
 
-def elabTypedRelFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) : TermElabM Expr := do
-  withSchemasRelVars schemas fun relVars => do
-    let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
+def elabTypedRelFilter (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) (combineRels : List Name → List Expr → TermElabM Expr) : TermElabM Expr := do
+  withTableVars schemas fun tableVars => do
+    let tableNames := tableVars.map (fun (_, name, _) => name)
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    let relVar ← combineRels tableNames vars
     let filter ← elabTypedTupleFilter schemas stx
     let e ← mkAppM ``restriction #[filter, relVar]
-    let vars := relVars.map (fun (relVar, _, _) => relVar)
     mkLambdaFVars vars.toArray e
+
+
+def elabTypedRelFilterSimple (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
+  TermElabM Expr :=
+  elabTypedRelFilter schemas stx fun _ vars =>
+    match vars with
+    | [relVar] => pure relVar
+    | _ => throwError "Multiple tables in FROM clause not supported in this context"
 
 def elabTypedTupleProjection (schemas : List (Name × List (Name × SQLTypeProxy))) (cols: List Syntax.Term) :
   TermElabM (Expr × List SQLTypeProxy) := do
@@ -190,20 +199,21 @@ def elabTypedTupleProjection (schemas : List (Name × List (Name × SQLTypeProxy
     return (e, types)
   )
 
--- this is really a stub for now, we need to handle multiple schemas
 def elabTypedRelFilterProj (schemas : List (Name × List (Name × SQLTypeProxy)))
-    (stx: Syntax) (colStxs : List (TSyntax `sql_col)) : TermElabM Expr := do
-  withSchemasRelVars schemas fun relVars => do
-    let [(relVar, _)] := relVars | throwError "Expected exactly one relation variable"
+    (stx: Syntax) (colStxs : List (TSyntax `sql_col))
+    (combineRels : List Name → List Expr → TermElabM Expr) : TermElabM (Expr × List SQLTypeProxy) := do
+  withTableVars schemas fun tableVars => do
+    let tableNames := tableVars.map (fun (_, name, _) => name)
+    let rel ← combineRels tableNames (tableVars.map (fun (relVar, _, _) => relVar))
     let filter ← elabTypedTupleFilter schemas stx
-    let e ← mkAppM ``restriction #[filter, relVar]
+    let e ← mkAppM ``restriction #[filter, rel]
     let cols := colStxs.map sqlColTerm
     let names := colStxs.map sqlColName
     let names := names.map (·.toString)
     let nameExpr := toExpr names
-    let (m, _) ← elabTypedTupleProjection schemas cols
+    let (m, types) ← elabTypedTupleProjection schemas cols
     let e' ← mkAppM ``TypedRelation.map #[m, nameExpr, e]
-    let vars := relVars.map (fun (relVar, _, _) => relVar)
-    mkLambdaFVars vars.toArray e'
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray e', types)
 
 end LeanDatabase

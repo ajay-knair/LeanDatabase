@@ -29,34 +29,62 @@ def parseTypedRelFilter  (schemasStr : List (String × List (String × String)))
   let schemas := schemas.map (fun (schemaName, schema) => (schemaName, schemaWithFullNames schemaName schema))
   let labels := schemas.foldl (fun acc (_, schema) => acc ++ schema.map (fun (name, _) => name)) []
   let stx ← expandNames labels stx
-  elabTypedRelFilter schemas stx
+  elabTypedRelFilterSimple schemas stx
 
 /--
 This is the main entry point for parsing a full SQL query, which includes the "SELECT", "FROM", and "WHERE" clauses. For simplicity, we only handle "SELECT *" and a single table in the "FROM" clause, but this can be extended in the future. The output is an expression representing the filter to be applied to the database, along with the schema of the table returned.
+
+This is in the context of table variables. The expressions returned can be compared for equality, containment etc. using the `sql_equiv` tactic.
 -/
-def elabSqlQuery (schemas : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
-    TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
+    TermElabM (Expr × List (Name × SQLTypeProxy)) :=  do
   let stx ← liftMacroM <| expandMacros stx
+  let tables := tableVars.map (fun (_, name, columns) => (name, columns))
   match stx with
-  | `(sql_query| SELECT * FROM $db:ident WHERE $filter;) => do
-    let .some (schemaName, schema) := schemas.findSome? (fun (name, schema) => if name == db.getId then some (name, schema) else none) | throwError s!"Unknown table {db}"
-    let filterExpr ← elabTypedRelFilter [(schemaName, schema)] filter
-    pure (filterExpr, schema)
-  | `(sql_query| SELECT * FROM $dbs:sql_from;) => do
-    let selectedDbs := getIdents dbs
-    let selectedSchemas ←  selectedDbs.mapM fun db => do
-      let .some (schemaName, schema) :=
-      schemas.findSome? (fun (name, schema) => if name == db then some (name, schema) else none) | throwError s!"Unknown table {db}"
-      pure (schemaName, schema)
-    let productRel ← withSchemasRelVars selectedSchemas fun relVars => do
-      let (head, name, _) :: tail := relVars | throwError "Expected at least one table in FROM clause"
-      let tail := tail.map (fun (relVar, _) => relVar)
-      tail.foldlM (fun rel acc => do
-        let combinedRel ← mkAppM ``crossProductRel #[acc, rel, toExpr name.toString, toExpr "tail"]
-        reduce combinedRel) head
-    let combinedSchema := selectedSchemas.foldl (fun acc (_, schema) => acc ++ schema) []
-    pure (productRel, combinedSchema)
+  | `(sql_query| SELECT * FROM $db:ident WHERE $filter $[;]?) => do
+    let .some (tableExpr, _, columns) :=
+      tableVars.findSome? (fun (tableExpr, name, columns) => if name == db.getId then some (tableExpr, name, columns) else none) | throwError s!"Unknown table {db}"
+    let filter ← elabTypedTupleFilter tables filter
+    let filterExpr ← mkAppM ``restriction #[filter, tableExpr]
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray filterExpr, columns)
+  | `(sql_query| SELECT * FROM $dbs:sql_from $[;]?) => do
+    let (productExpr, combinedSchema) ← productPair dbs
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray productExpr, combinedSchema)
+  | `(sql_query| SELECT * FROM $dbs:sql_from WHERE $filter $[;]?) => do
+    let (productExpr, combinedSchema) ← productPair dbs
+    let filter ← elabTypedTupleFilter tables filter
+    let filterExpr ← mkAppM ``restriction #[filter, productExpr]
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
   | _ => throwError "Unexpected syntax for SQL query"
+  where productPair (dbs: TSyntax `sql_from) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+    let selectedTableNames := getIdents dbs
+    let selectedTables ←  selectedTableNames.mapM fun db => do
+      let .some (tableExpr, tableName, columns) :=
+      tableVars.findSome? (fun (tableExpr, name, columns) => if name == db then some (tableExpr, name, columns) else none) | throwError s!"Unknown table {db}"
+      pure (tableExpr, tableName, columns)
+    let selectedTableVars := selectedTables.map (fun (tableExpr, _, _) => tableExpr)
+    let headExpr :: tailExprs := selectedTableVars | throwError "Expected at least one table in FROM clause"
+    let productExpr ← tailExprs.foldlM (fun acc rel => do
+      let combinedRel ← mkAppM ``crossProductRel #[acc, rel]
+      reduce combinedRel) headExpr
+    let combinedSchema := selectedTables.foldl (fun acc (_, _, columns) => acc ++ columns) []
+    return (productExpr, combinedSchema)
+
+def elabSqlQuery (tables : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
+    TermElabM (Expr × List (Name × SQLTypeProxy)) := withTableVars tables fun tableVars => do
+  let stx ← liftMacroM <| expandMacros stx
+  elabSqlQueryCore tableVars stx
+
+def parseSqlQuery (tables : List (Name × List (Name × SQLTypeProxy))) (str : String) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+  let tables := tables.map (fun (tableName, columns) => (tableName, schemaWithFullNames tableName columns))
+  let .ok stx := Parser.runParserCategory (← getEnv) `sql_query str | throwError "Failed to parse SQL query: {str}"
+  let labels := tables.foldl (fun acc (_, columns) => acc ++ columns.map (fun (name, _) => name)) []
+  let stx ← expandNames labels stx
+  elabSqlQuery tables stx
+
 
 /-! ## Smoke tests — the parser elaborates, and `grind` proves the equivalences -/
 
@@ -64,9 +92,12 @@ def egTypedTupleFilter := parseTypedTupleFilter [("age", "Int"), ("isActive", "B
 
 def egTypedTupleFilter' := parseTypedTupleFilter [("age", "Int"), ("isActive", "Bool"), ("height", "Float")] "age > 30 && isActive && age > 20"
 
-def egTypedRelFilter := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && height < 180"
+def egTypedRelFilter := parseTypedRelFilter [("table", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && height < 180"
 
-def egTypedRelFilter' := parseTypedRelFilter [("schema", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && age > 20 && height < 180"
+def egTypedRelFilter' := parseTypedRelFilter [("table", [("age", "Int"), ("isActive", "Bool"), ("height", "Float")])] "age > 30 && isActive && age > 20 && height < 180"
+
+def egSqlQuery := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT * FROM table WHERE age > 30 && isActive && height < 180"
+
 
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
@@ -83,6 +114,25 @@ elab "egTypedRelFilter%" : term => do
 elab "egTypedRelFilter%%" : term => do
   let e ← egTypedRelFilter'
   return e
+
+elab "egSqlQuery%" : term => do
+  let (e, _) ← egSqlQuery
+  return e
+
+set_option pp.funBinderTypes true in
+/--
+info: fun (table : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦
+  restriction
+    (fun (table.coords : TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦
+      let table.age := table.coords ⟨0, ⋯⟩;
+      let table.isActive := table.coords ⟨1, ⋯⟩;
+      let table.height := table.coords ⟨2, ⋯⟩;
+      decide (table.age > 30) && table.isActive && decide (table.height < 180))
+    table : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation (colTypeOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float])
+-/
+#guard_msgs in
+#check egSqlQuery%
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by
