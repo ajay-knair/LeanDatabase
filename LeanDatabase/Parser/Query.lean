@@ -39,25 +39,41 @@ This is in the context of table variables. The expressions returned can be compa
 def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
     TermElabM (Expr × List (Name × SQLTypeProxy)) :=  do
   let stx ← liftMacroM <| expandMacros stx
-  let tables := tableVars.map (fun (_, name, columns) => (name, columns))
   match stx with
-  | `(sql_query| SELECT * FROM $db:ident WHERE $filter $[;]?) => do
-    let .some (tableExpr, _, columns) :=
-      tableVars.findSome? (fun (tableExpr, name, columns) => if name == db.getId then some (tableExpr, name, columns) else none) | throwError s!"Unknown table {db}"
-    let filter ← elabTypedTupleFilter tables filter
-    let filterExpr ← mkAppM ``restriction #[filter, tableExpr]
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
-    return (← mkLambdaFVars vars.toArray filterExpr, columns)
   | `(sql_query| SELECT * FROM $dbs:sql_from $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray productExpr, combinedSchema)
   | `(sql_query| SELECT * FROM $dbs:sql_from WHERE $filter $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
-    let filter ← elabTypedTupleFilter tables filter
+    let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
     let filterExpr ← mkAppM ``restriction #[filter, productExpr]
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
+  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from WHERE $filter $[;]?) => do
+    let (productExpr, combinedSchema) ← productPair dbs
+    let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
+    let filterExpr ← mkAppM ``restriction #[filter, productExpr]
+    let colStxs := cols.getElems
+    let cols := colStxs.map sqlColTerm
+    let names := colStxs.map sqlColName
+    let nameStrs := names.map (·.toString)
+    let nameExpr := toExpr nameStrs
+    let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
+    let e' ← mkAppM ``TypedRelation.map #[m, nameExpr, filterExpr]
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray e', names.toList.zip types)
+  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[;]?) => do
+    let (productExpr, combinedSchema) ← productPair dbs
+    let colStxs := cols.getElems
+    let cols := colStxs.map sqlColTerm
+    let names := colStxs.map sqlColName
+    let nameStrs := names.map (·.toString)
+    let nameExpr := toExpr nameStrs
+    let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
+    let e' ← mkAppM ``TypedRelation.map #[m, nameExpr, productExpr]
+    let vars := tableVars.map (fun (relVar, _, _) => relVar)
+    return (← mkLambdaFVars vars.toArray e', names.toList.zip types)
   | _ => throwError "Unexpected syntax for SQL query"
   where productPair (dbs: TSyntax `sql_from) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
     let selectedTableNames := getIdents dbs
