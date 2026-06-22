@@ -83,7 +83,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
       pure (tableExpr, tableName, columns)
     let combinedSchema := selectedTables.foldl (fun acc (_, _, columns) => acc ++ columns) []
     let selectedTableVars := selectedTables.map (fun (tableExpr, _, _) => tableExpr)
-    let headExpr :: tailExprs := selectedTableVars | throwError "Expected at least one table in FROM clause"
+    let headExpr :: tailExprs := selectedTableVars | throwError "Expected at least one table in FROM clause: {← PrettyPrinter.ppCategory `sql_from dbs}"
     let productExpr ← tailExprs.foldlM (fun acc rel => do
       let combinedRel ← mkAppM ``crossProductRel #[acc, rel]
       reduce combinedRel) headExpr
@@ -117,6 +117,12 @@ def egSqlQuery := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`h
 
 def egSqlQuery₁ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT age FROM table WHERE age > 30 && isActive && height < 180"
 
+def egSqlQuery₂ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT age, height FROM table WHERE age > 30 && isActive && height < 180"
+
+def egSqlQuery₃ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)]), (`table2, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT * FROM table JOIN table2 ON table.age = table2.age WHERE table.age > 30 && table.isActive && table.height < 180"
+
+def egSqlQuery₄ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT 2 * age AS doubled_age FROM table WHERE age > 30 && isActive && height < 180"
+
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
   return e
@@ -139,6 +145,18 @@ elab "egSqlQuery%" : term => do
 
 elab "egSqlQuery₁" : term => do
   let (e, _) ← egSqlQuery₁
+  return e
+
+elab "egSqlQuery₂" : term => do
+  let (e, _) ← egSqlQuery₂
+  return e
+
+elab "egSqlQuery₃" : term => do
+  let (e, _) ← egSqlQuery₃
+  return e
+
+elab "egSqlQuery₄" : term => do
+  let (e, _) ← egSqlQuery₄
   return e
 
 set_option pp.funBinderTypes true in
@@ -186,14 +204,47 @@ info: fun table ↦
 #check egSqlQuery₁
 
 
-example : colTypeOfList (List.map (fun x ↦ x.2) [("table.age", SQLTypeProxy.int)]) = Fin.cons ℤ colTypeNil :=
-  by
-    simp
-    funext i₀
-    simp at i₀
-    cases i₀
-    simp [colTypeOfList]
-    sorry
+/--
+info: fun table ↦
+  (restriction
+        (fun table.coords ↦
+          let table.age := table.coords ⟨0, ⋯⟩;
+          let table.isActive := table.coords ⟨1, ⋯⟩;
+          let table.height := table.coords ⟨2, ⋯⟩;
+          decide (table.age > 30) && table.isActive && decide (table.height < 180))
+        table).mapByList
+    [("table.age", SQLTypeProxy.int), ("table.height", SQLTypeProxy.float)] fun table.coords ↦
+    let table.age := table.coords ⟨0, ⋯⟩;
+    let table.height := table.coords ⟨2, ⋯⟩;
+    TypedTupleOfList.cons SQLTypeProxy.int table.age
+      (TypedTupleOfList.cons SQLTypeProxy.float table.height
+        TypedTupleOfList.nil) : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation
+    (colTypeOfList (List.map (fun x ↦ x.2) [("table.age", SQLTypeProxy.int), ("table.height", SQLTypeProxy.float)]))
+-/
+#guard_msgs in
+#check egSqlQuery₂
+
+-- example : egSqlQuery₃ := by
+--   sorry
+
+/--
+info: fun table ↦
+  (restriction
+        (fun table.coords ↦
+          let table.age := table.coords ⟨0, ⋯⟩;
+          let table.isActive := table.coords ⟨1, ⋯⟩;
+          let table.height := table.coords ⟨2, ⋯⟩;
+          decide (table.age > 30) && table.isActive && decide (table.height < 180))
+        table).mapByList
+    [("doubled_age", SQLTypeProxy.int)] fun table.coords ↦
+    let table.age := table.coords ⟨0, ⋯⟩;
+    TypedTupleOfList.cons SQLTypeProxy.int (2 * table.age)
+      TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("doubled_age", SQLTypeProxy.int)]))
+-/
+#guard_msgs in
+#check egSqlQuery₄
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by

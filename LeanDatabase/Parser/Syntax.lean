@@ -51,12 +51,12 @@ macro_rules -- Gemini generated (then fixed) rules for desugaring JOINs and CROS
   -----------------------------------------------------------------------------
   -- 1. Desugar INNER JOIN -> Replace with comma, append condition via AND
 
-  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond WHERE $whereCond ;) =>
+  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond WHERE $whereCond $[;]?) =>
       `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $whereCond AND $onCond;)
 
   -- 2. Desugar CROSS JOIN -> Replace with comma, leave WHERE unchanged
 
-  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident WHERE $whereCond ;) =>
+  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident WHERE $whereCond $[;]?) =>
       `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $whereCond ;)
 
   -----------------------------------------------------------------------------
@@ -64,12 +64,12 @@ macro_rules -- Gemini generated (then fixed) rules for desugaring JOINs and CROS
   -----------------------------------------------------------------------------
   -- 3. Desugar INNER JOIN -> Initialize the WHERE clause with the ON condition
 
-  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond;) =>
+  | `(sql_query| SELECT $items FROM $f:sql_from JOIN $tNext:ident ON $onCond $[;]?) =>
       `(sql_query| SELECT $items FROM $f, $tNext:ident WHERE $onCond ;)
 
   -- 4. Desugar CROSS JOIN -> Replace with comma, no WHERE clause needed
 
-  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident;) =>
+  | `(sql_query| SELECT $items FROM $f:sql_from CROSS JOIN $tNext:ident $[;]?) =>
       `(sql_query| SELECT $items FROM $f, $tNext:ident;)
 
 
