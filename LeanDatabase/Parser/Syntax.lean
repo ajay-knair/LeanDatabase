@@ -43,7 +43,7 @@ syntax sql_from "JOIN" ident "ON" term : sql_from     -- 3. Explicit Inner Join
 syntax sql_from "CROSS" "JOIN" ident : sql_from       -- 4. Cross Join
 syntax sql_from "," sql_from : sql_from              -- 5. Comma-separated (Cartesian Product)
 
-syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? (";")? : sql_query
+syntax "SELECT" sql_cols "FROM" sql_from ("WHERE" term)? (";")? ("GROUP" "BY" sql_cols ("HAVING" term)?)? : sql_query
 
 macro_rules -- Gemini generated (then fixed) rules for desugaring JOINs and CROSS JOINs into comma-separated FROM clauses with WHERE conditions; GROUP BY omitted for now.
   -----------------------------------------------------------------------------

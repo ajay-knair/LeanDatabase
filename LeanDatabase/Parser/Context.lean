@@ -32,9 +32,9 @@ def elabAsSql (stx: Syntax) : TermElabM (SQLTypeProxy × Expr) := do
 
 /-! ## Column-binding context -/
 
-def withLetColumnVars  (schema : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr) (usedName : Name → Bool)
+def withLetColumnVars  (columns : List ((Name × SQLTypeProxy) × Expr)) (typedTupleVar : Expr) (usedName : Name → Bool)
     (k : Array Expr → TermElabM α )  : TermElabM α := do
-  match schema with
+  match columns with
   | [] => k #[]
   | ((name, colType), projExpr) :: rest => do
     let colTypeExpr := typeExpr colType
@@ -80,11 +80,11 @@ def expandNames (labels : List Name) (stx: Syntax) : MetaM Syntax := do
     | some (_, pfx) => pure <| mkIdent <| pfx ++ idName
     | none => pure none
 
-def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) (usedName : Name → Bool)
-    (k : List (Expr × Array Expr) → TermElabM α) : TermElabM α := do
-  match schemas with
-  | [] => k []
-  | (schemaName, schema) :: rest => do
+/--
+Expressions for projection functions for each column in a schema, along with the type of the tuple that contains them.
+-/
+def columnProjectionsE (schema : List (Name × SQLTypeProxy)) :
+  MetaM <| Expr × (List ((Name × SQLTypeProxy) × Expr)) := do
     let colTypes := schema.map (fun (_, colType) => colType)
     let listExpr ← sqlTypeListExpr colTypes
     let type ← mkAppM ``TypedTupleOfList #[listExpr]
@@ -94,8 +94,45 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
           let value ← mkAppM' typedTuple #[index]
           mkLambdaFVars #[typedTuple] value
     let schemaExprs := schema.zip colExprs
+    return (type, schemaExprs)
+
+def exprTypeListTuple (colExprsTypes : List (SQLTypeProxy × Expr)) : MetaM Expr := do
+  colExprsTypes.foldrM (fun (colType, expr) acc => do
+    mkAppM ``TypedTupleOfList.cons #[toExpr colType, expr, acc]) (mkConst ``TypedTupleOfList.nil)
+
+/--
+Projects onto a subcollection of columns. Returns expressions for the projection function, domain and codomain types.
+-/
+def subcolumsProjectionsE (schema : List (Name × SQLTypeProxy)) (includeColumn : Name → Bool) :
+  MetaM <| Expr × Expr × Expr := do
+    let colTypes := schema.map (fun (_, colType) => colType)
+    let listExpr ← sqlTypeListExpr colTypes
+    let domainE ← mkAppM ``TypedTupleOfList #[listExpr]
+    let subcolTypes := schema.filterMap fun (name, colType) =>
+      if includeColumn name then some colType else none
+    let sublistExpr ← sqlTypeListExpr subcolTypes
+    let projE ←
+      withLocalDeclD `typedTuple domainE fun typedTuple => do
+      let colExprs ← List.finRange schema.length |>.filterMapM fun i => do
+        let index := toExpr i
+        let (name, colType) := schema.get i
+        if includeColumn name then do
+          let value ← mkAppM' typedTuple #[index]
+          pure <| some (colType, value)
+        else
+          pure none
+      let value ← exprTypeListTuple colExprs
+      mkLambdaFVars #[typedTuple] value
+    return (projE, domainE, sublistExpr)
+
+def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) (usedName : Name → Bool)
+    (k : List (Expr × Array Expr) → TermElabM α) : TermElabM α := do
+  match schemas with
+  | [] => k []
+  | (schemaName, schema) :: rest => do
+    let (type, columnExprs) ← columnProjectionsE (schemaWithFullNames schemaName schema)
     withLocalDeclD (schemaName ++ `coords) type fun typedTuple => do
-      withLetColumnVars  schemaExprs typedTuple usedName
+      withLetColumnVars  columnExprs typedTuple usedName
         fun letVars => do
       withSchemasTupleVars rest usedName fun rest =>
        k ((typedTuple, letVars) :: rest)
@@ -193,10 +230,6 @@ def elabTypedRelFilterSimple (schemas : List (Name × List (Name × SQLTypeProxy
     match vars with
     | [relVar] => pure relVar
     | _ => throwError "Multiple tables in FROM clause not supported in this context"
-
-def exprTypeListTuple (colExprsTypes : List (SQLTypeProxy × Expr)) : MetaM Expr := do
-  colExprsTypes.foldrM (fun (colType, expr) acc => do
-    mkAppM ``TypedTupleOfList.cons #[toExpr colType, expr, acc]) (mkConst ``TypedTupleOfList.nil)
 
 def elabTypedTupleProjection (schemas : List (Name × List (Name × SQLTypeProxy))) (cols: List Syntax.Term) :
   TermElabM (Expr × List SQLTypeProxy) := do
