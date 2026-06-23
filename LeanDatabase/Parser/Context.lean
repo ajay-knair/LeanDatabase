@@ -110,7 +110,7 @@ def subcolumsProjectionsE (schema : List (Name × SQLTypeProxy)) (includeColumn 
     let domainE ← mkAppM ``TypedTupleOfList #[listExpr]
     let subcolTypes := schema.filterMap fun (name, colType) =>
       if includeColumn name then some colType else none
-    let sublistExpr ← sqlTypeListExpr subcolTypes
+    let codomainE ← sqlTypeListExpr subcolTypes
     let projE ←
       withLocalDeclD `typedTuple domainE fun typedTuple => do
       let colExprs ← List.finRange schema.length |>.filterMapM fun i => do
@@ -123,7 +123,34 @@ def subcolumsProjectionsE (schema : List (Name × SQLTypeProxy)) (includeColumn 
           pure none
       let value ← exprTypeListTuple colExprs
       mkLambdaFVars #[typedTuple] value
-    return (projE, domainE, sublistExpr)
+    return (projE, domainE, codomainE)
+
+/--
+info: LeanDatabase.TypedAgg.groupSum {n : ℕ} {colType : Fin n → Type} [(i : Fin n) → DecidableEq (colType i)] {K : Type}
+  [DecidableEq K] (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType) (f : TypedTuple colType → ℤ) : ℤ
+-/
+#guard_msgs in
+#check groupSum
+/--
+Helper to generate the sum in group-by queries, to be used to introduce `let`-bindings for the sum of each column in a schema. Returns a list of pairs of column names and expressions for the sums. This is a demo for now.
+
+The expression returned is as a function of the columns selected in groupBy, and should be composed with the projection function for the groupBy columns to get a function of the entire tuple. The `relE` argument is the expression for the relation being grouped, which is used to compute the sum.
+-/
+def groupSumsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → Bool) (relE: Expr) :
+  MetaM <| List (Name × Expr) := do
+    let intColumnNames := -- columns for which we want sums
+      schema.filterMap fun (name, colType) =>
+        if !(columnInGroup name) && colType == SQLTypeProxy.int then some name else none
+    let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
+    let (_, allColsE) ← columnProjectionsE schema
+    withLocalDeclD `k codomainE fun keyVar => do
+    allColsE.filterMapM fun ((name, _), projE) => do
+      if intColumnNames.contains name then do
+        let sumE ← mkAppM ``groupSum #[keyMapE, keyVar, relE, projE]
+        let sumE ← mkLambdaFVars #[keyVar] sumE
+        pure <| some (name, sumE)
+      else
+        pure none
 
 def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) (usedName : Name → Bool)
     (k : List (Expr × Array Expr) → TermElabM α) : TermElabM α := do
