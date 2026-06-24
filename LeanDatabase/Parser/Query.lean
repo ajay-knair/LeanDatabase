@@ -130,6 +130,8 @@ def egSqlQuery₃ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), 
 
 def egSqlQuery₄ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT 2 * age AS doubled_age FROM table WHERE age > 30 && isActive && height < 180"
 
+def egSqlQuery₅ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT COUNT(*) AS count FROM table WHERE age > 30 && isActive && height < 180 GROUP BY age"
+
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
   return e
@@ -171,6 +173,10 @@ elab "egSqlQuery₃" : term => do
 
 elab "egSqlQuery₄" : term => do
   let (e, _) ← egSqlQuery₄
+  return e
+
+elab "egSqlQuery₅" : term => do
+  let (e, _) ← egSqlQuery₅
   return e
 
 set_option pp.funBinderTypes true in
@@ -278,6 +284,20 @@ info: fun table ↦
 -/
 #guard_msgs in
 #check egSqlQuery₄
+
+/--
+error: Application type mismatch: The argument
+  table.coords
+has type
+  TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]
+but is expected to have type
+  TypedRelation (colTypeOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float])
+in the application
+  groupCount (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) k
+    table.coords
+-/
+#guard_msgs in
+#check egSqlQuery₅
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by

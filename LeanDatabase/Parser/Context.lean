@@ -73,6 +73,9 @@ theorem schemaWithFullNames_length (schemaName: Name) (schema : List (Name × SQ
 syntax "COUNT" "(" "*" ")" : term
 syntax "COUNT" "(" ident ")" : term
 syntax "SUM" "(" ident ")" : term
+syntax "AVG" "(" ident ")" : term
+syntax "MIN" "(" ident ")" : term
+syntax "MAX" "(" ident ")" : term
 
 def expandNames (labels : List Name) (stx: Syntax) : MetaM Syntax := do
   let pairs ← labels.filterMapM fun label => do
@@ -86,6 +89,9 @@ def expandNames (labels : List Name) (stx: Syntax) : MetaM Syntax := do
       | `(COUNT(*)) => return some <| mkIdent `countAll
       | `(COUNT($id)) => return some <| mkIdent <| id.getId ++ `count
       | `(SUM($id)) => return some <| mkIdent <| id.getId ++ `sum
+      | `(AVG($id)) => return some <| mkIdent <| id.getId ++ `avg
+      | `(MIN($id)) => return some <| mkIdent <| id.getId ++ `min
+      | `(MAX($id)) => return some <| mkIdent <| id.getId ++ `max
       | _ => return none
 
 /--
@@ -118,7 +124,7 @@ def subcolumsProjectionsE (schema : List (Name × SQLTypeProxy)) (includeColumn 
     let domainE ← mkAppM ``TypedTupleOfList #[listExpr]
     let subcolTypes := schema.filterMap fun (name, colType) =>
       if includeColumn name then some colType else none
-    let codomainE ← sqlTypeListExpr subcolTypes
+    let codomainE ← mkAppM ``TypedTupleOfList #[← sqlTypeListExpr subcolTypes]
     let projE ←
       withLocalDeclD `typedTuple domainE fun typedTuple => do
       let colExprs ← List.finRange schema.length |>.filterMapM fun i => do
