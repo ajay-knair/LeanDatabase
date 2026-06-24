@@ -42,7 +42,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
   match stx with
   | `(sql_query| SELECT $sel FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
-    let filterExpr ← match filter? with
+    let filteredExpr ← match filter? with
       | some filter => do
         let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
         mkAppM ``restriction #[filter, productExpr]
@@ -50,7 +50,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     match sel with
     | `(sql_cols| *) => do
       let vars := tableVars.map (fun (relVar, _, _) => relVar)
-      return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
+      return (← mkLambdaFVars vars.toArray filteredExpr, combinedSchema)
     | `(sql_cols| $cols:sql_col,*) => do
       let colStxs := cols.getElems
       let cols := colStxs.map sqlColTerm
@@ -58,17 +58,18 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
       let nameStrs := names.map (·.toString)
       let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
       let nameTypeExpr := toExpr <| nameStrs.zip types
-      let e' ← mkAppM ``TypedRelation.mapByList #[filterExpr, nameTypeExpr, m]
+      let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
       let vars := tableVars.map (fun (relVar, _, _) => relVar)
       return (← mkLambdaFVars vars.toArray e', names.zip types)
     | _ => throwError "Unexpected syntax for SQL query"
-  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]? GROUP BY $groups:ident,* $[HAVING $having?]? $[;]?) => do
+  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]?
+      GROUP BY $groups:ident,* $[HAVING $having?]? $[;]?) => do
     let groupNames := groups.getElems.map (fun stx => stx.getId)
     let inGroup := fun name => groupNames.any (fun g => g == name)
     let (productExpr, combinedSchema) ← productPair dbs
-    let filterExpr ← match filter? with
+    let filteredExpr ← match filter? with
       | some filter => do
-        let filter ← elabTypedTupleGroupFilter [(`table, combinedSchema)] filter inGroup
+        let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
         mkAppM ``restriction #[filter, productExpr]
       | none => pure productExpr
     let colStxs := cols.getElems
@@ -77,7 +78,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     let nameStrs := names.map (·.toString)
     let (m, types) ← elabTypedTupleGroupProjection [(`table, combinedSchema)] cols.toList inGroup
     let nameTypeExpr := toExpr <| nameStrs.zip types
-    let e' ← mkAppM ``TypedRelation.mapByList #[filterExpr, nameTypeExpr, m]
+    let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray e', names.zip types)
   | _ => throwError "Unexpected syntax for SQL query"
@@ -287,14 +288,13 @@ info: fun table ↦
 
 /--
 error: Application type mismatch: The argument
-  table.coords
+  table
 has type
   TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]
 but is expected to have type
   TypedRelation (colTypeOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float])
 in the application
-  groupCount (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) k
-    table.coords
+  groupCount (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) k table
 -/
 #guard_msgs in
 #check egSqlQuery₅

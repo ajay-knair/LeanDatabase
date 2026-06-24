@@ -98,17 +98,18 @@ def expandNames (labels : List Name) (stx: Syntax) : MetaM Syntax := do
 Expressions for projection functions for each column in a schema, along with the type of the tuple that contains them.
 -/
 def columnProjectionsE (schema : List (Name × SQLTypeProxy)) :
-  MetaM <| Expr × (List ((Name × SQLTypeProxy) × Expr)) := do
+  MetaM <| Expr × Expr × (List ((Name × SQLTypeProxy) × Expr)) := do
     let colTypes := schema.map (fun (_, colType) => colType)
     let listExpr ← sqlTypeListExpr colTypes
-    let type ← mkAppM ``TypedTupleOfList #[listExpr]
+    let tupleType ← mkAppM ``TypedTupleOfList #[listExpr]
+    let relType ← mkAppM ``TypedRelationOfList #[listExpr]
     let colExprs ← List.finRange colTypes.length |>.mapM fun i => do
         let index := toExpr i
-        withLocalDeclD `typedTuple type fun typedTuple => do
+        withLocalDeclD `typedTuple tupleType fun typedTuple => do
           let value ← mkAppM' typedTuple #[index]
           mkLambdaFVars #[typedTuple] value
     let schemaExprs := schema.zip colExprs
-    return (type, schemaExprs)
+    return (tupleType, relType, schemaExprs)
 
 def exprTypeListTuple (colExprsTypes : List (SQLTypeProxy × Expr)) : MetaM Expr := do
   colExprsTypes.foldrM (fun (colType, expr) acc => do
@@ -161,7 +162,7 @@ def groupSumsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → 
       schema.filterMap fun (name, colType) =>
         if !(columnInGroup name) && colType == SQLTypeProxy.int then some name else none
     let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
-    let (_, allColsE) ← columnProjectionsE schema
+    let (_, _, allColsE) ← columnProjectionsE schema
     let funcFromProjection ←  withLocalDeclD `k codomainE fun keyVar => do
       allColsE.filterMapM fun ((name, colType), projE) => do
         if intColumnNames.contains name then do
@@ -210,7 +211,7 @@ def withSchemasTupleVars (schemas : List (Name × List (Name × SQLTypeProxy))) 
   match schemas with
   | [] => k []
   | (schemaName, schema) :: rest => do
-    let (type, columnExprs) ← columnProjectionsE (schemaWithFullNames schemaName schema)
+    let (type, _, columnExprs) ← columnProjectionsE (schemaWithFullNames schemaName schema)
     withLocalDeclD (schemaName ++ `coords) type fun typedTuple => do
       withLetColumnVars  columnExprs typedTuple usedName
         fun letVars => do
@@ -223,10 +224,10 @@ def withSchemasGroupedTupleVars (schemas : List (Name × List (Name × SQLTypePr
   | [] => k []
   | (schemaName, schema) :: rest => do
     let schema := schemaWithFullNames schemaName schema
-    let (type, columnExprs) ← columnProjectionsE schema
+    let (type, _, columnExprs) ← columnProjectionsE schema
     let columnExprs := columnExprs.filter fun ((name, _), _) =>
         inGroup name
-    withLocalDeclD (schemaName ++ `coords) type fun typedTuple => do
+    withLocalDeclD (schemaName) type fun typedTuple => do
       let groupSumsExprs ← groupSumsE schema inGroup typedTuple
       let groupCountExpr ← groupCountsE schema inGroup typedTuple
       let columnExprs := columnExprs ++ groupSumsExprs ++ [groupCountExpr]
