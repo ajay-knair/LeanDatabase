@@ -40,31 +40,28 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     TermElabM (Expr × List (Name × SQLTypeProxy)) :=  do
   let stx ← escapeJoin stx
   match stx with
-  | `(sql_query| SELECT * FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
+  | `(sql_query| SELECT $sel FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
     let filterExpr ← match filter? with
       | some filter => do
         let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
         mkAppM ``restriction #[filter, productExpr]
       | none => pure productExpr
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
-    return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
-  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
-    let (productExpr, combinedSchema) ← productPair dbs
-    let filterExpr ← match filter? with
-      | some filter => do
-        let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
-        mkAppM ``restriction #[filter, productExpr]
-      | none => pure productExpr
-    let colStxs := cols.getElems
-    let cols := colStxs.map sqlColTerm
-    let names := colStxs.map sqlColName |>.toList
-    let nameStrs := names.map (·.toString)
-    let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
-    let nameTypeExpr := toExpr <| nameStrs.zip types
-    let e' ← mkAppM ``TypedRelation.mapByList #[filterExpr, nameTypeExpr, m]
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
-    return (← mkLambdaFVars vars.toArray e', names.zip types)
+    match sel with
+    | `(sql_cols| *) => do
+      let vars := tableVars.map (fun (relVar, _, _) => relVar)
+      return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
+    | `(sql_cols| $cols:sql_col,*) => do
+      let colStxs := cols.getElems
+      let cols := colStxs.map sqlColTerm
+      let names := colStxs.map sqlColName |>.toList
+      let nameStrs := names.map (·.toString)
+      let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
+      let nameTypeExpr := toExpr <| nameStrs.zip types
+      let e' ← mkAppM ``TypedRelation.mapByList #[filterExpr, nameTypeExpr, m]
+      let vars := tableVars.map (fun (relVar, _, _) => relVar)
+      return (← mkLambdaFVars vars.toArray e', names.zip types)
+    | _ => throwError "Unexpected syntax for SQL query"
   | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]? GROUP BY $groups:ident,* $[HAVING $having?]? $[;]?) => do
     let groupNames := groups.getElems.map (fun stx => stx.getId)
     let inGroup := fun name => groupNames.any (fun g => g == name)
