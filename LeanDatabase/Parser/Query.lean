@@ -40,20 +40,22 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     TermElabM (Expr × List (Name × SQLTypeProxy)) :=  do
   let stx ← escapeJoin stx
   match stx with
-  | `(sql_query| SELECT * FROM $dbs:sql_from $[;]?) => do
+  | `(sql_query| SELECT * FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
-    return (← mkLambdaFVars vars.toArray productExpr, combinedSchema)
-  | `(sql_query| SELECT * FROM $dbs:sql_from WHERE $filter $[;]?) => do
-    let (productExpr, combinedSchema) ← productPair dbs
-    let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
-    let filterExpr ← mkAppM ``restriction #[filter, productExpr]
+    let filterExpr ← match filter? with
+      | some filter => do
+        let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
+        mkAppM ``restriction #[filter, productExpr]
+      | none => pure productExpr
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray filterExpr, combinedSchema)
-  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from WHERE $filter $[;]?) => do
+  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
-    let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
-    let filterExpr ← mkAppM ``restriction #[filter, productExpr]
+    let filterExpr ← match filter? with
+      | some filter => do
+        let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
+        mkAppM ``restriction #[filter, productExpr]
+      | none => pure productExpr
     let colStxs := cols.getElems
     let cols := colStxs.map sqlColTerm
     let names := colStxs.map sqlColName |>.toList
@@ -63,23 +65,15 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     let e' ← mkAppM ``TypedRelation.mapByList #[filterExpr, nameTypeExpr, m]
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray e', names.zip types)
-  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[;]?) => do
-    let (productExpr, combinedSchema) ← productPair dbs
-    let colStxs := cols.getElems
-    let cols := colStxs.map sqlColTerm |>.toList
-    let names := colStxs.map sqlColName |>.toList
-    let nameStrs := names.map (·.toString)
-    let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols
-    let nameTypeExpr := toExpr <| nameStrs.zip types
-    let e' ← mkAppM ``TypedRelation.mapByList #[m, nameTypeExpr, productExpr]
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
-    return (← mkLambdaFVars vars.toArray e', names.zip types)
-  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from WHERE $filter GROUP BY $groups:ident,* $[;]?) => do
+  | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]? GROUP BY $groups:ident,* $[HAVING $having?]? $[;]?) => do
     let groupNames := groups.getElems.map (fun stx => stx.getId)
     let inGroup := fun name => groupNames.any (fun g => g == name)
     let (productExpr, combinedSchema) ← productPair dbs
-    let filter ← elabTypedTupleGroupFilter [(`table, combinedSchema)] filter inGroup
-    let filterExpr ← mkAppM ``restriction #[filter, productExpr]
+    let filterExpr ← match filter? with
+      | some filter => do
+        let filter ← elabTypedTupleGroupFilter [(`table, combinedSchema)] filter inGroup
+        mkAppM ``restriction #[filter, productExpr]
+      | none => pure productExpr
     let colStxs := cols.getElems
     let cols := colStxs.map sqlColTerm
     let names := colStxs.map sqlColName |>.toList
