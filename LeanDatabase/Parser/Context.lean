@@ -171,7 +171,7 @@ def groupSumsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → 
           pure <| some (name ++ `sum, colType, sumE)
         else
           pure none
-    let keyValue ← mkAppM' keyMapE #[relE]
+    let keyValue ← mkAppM' keyMapE #[relE] -- FIXME: Wrong, not `relE` but the key tuple, but we don't have it here. Need to pass it in.
     funcFromProjection.mapM fun (name, colType, sumE) => do
       let sumValue ← mkAppM' sumE #[keyValue]
       pure ((name, colType), sumValue)
@@ -229,7 +229,9 @@ def withSchemasGroupedTupleVars (schemas : List (Name × List (Name × SQLTypePr
         inGroup name
     withLocalDeclD (schemaName) type fun typedTuple => do
       let groupSumsExprs ← groupSumsE schema inGroup typedTuple
+      logInfo m!"groupSumsExprs generated"
       let groupCountExpr ← groupCountsE schema inGroup typedTuple
+      logInfo m!"groupCountExpr generated"
       let columnExprs := columnExprs ++ groupSumsExprs ++ [groupCountExpr]
       withLetColumnVars  columnExprs typedTuple usedName
         fun letVars => do
