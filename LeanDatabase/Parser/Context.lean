@@ -224,7 +224,7 @@ def withSchemasGroupedTupleVars (schemas : List (Name × List (Name × SQLTypePr
   | [] => k []
   | (schemaName, schema) :: rest => do
     let schema := schemaWithFullNames schemaName schema
-    let (type, _, columnExprs) ← columnProjectionsE schema
+    let (_, type, columnExprs) ← columnProjectionsE schema
     let columnExprs := columnExprs.filter fun ((name, _), _) =>
         inGroup name
     withLocalDeclD (schemaName) type fun typedTuple => do
