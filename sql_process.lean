@@ -24,7 +24,7 @@ partial def process_loop (env: Environment)(getLine : Unit →  IO String) (putS
     IO.eprintln s!"Received JSON: {js.pretty}"
     IO.eprintln "Checking equivalence..."
     let ctx: Core.Context := {fileName := "", fileMap := {source:= "", positions := #[]}, maxHeartbeats := 0, maxRecDepth := 1000000}
-    let core := checkEquivCore js
+    let core := checkEquivSimpleCore js
     let result? := core.run' ctx {env := env}
     let result? ←  result?.toIO'
     IO.eprintln "Equivalence check completed."

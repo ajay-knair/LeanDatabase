@@ -24,7 +24,7 @@ namespace LeanDatabase
 
 /-- Parse the `first`/`second` filter strings from a JSON record (with its `schema`) and report
 whether `sql_equiv` proves them equal. -/
-def checkEquiv (data: Json) : TermElabM Bool := do
+def checkEquivSimple (data: Json) : TermElabM Bool := do
     let .ok schema := data.getObjValAs? (List Json) "schema" | throwError "Missing schema"
     let schemaStr : List (String × String) ←  schema.mapM fun colJson => do
       let .ok name := colJson.getObjValAs? String "name" | throwError "Missing column name"
@@ -43,8 +43,8 @@ def checkEquiv (data: Json) : TermElabM Bool := do
     catch _ =>
         pure false
 
-def checkEquivCore (data: Json) : CoreM Bool := do
-    let res :=  checkEquiv data |>.run' {} |>.run' {}
+def checkEquivSimpleCore (data: Json) : CoreM Bool := do
+    let res :=  checkEquivSimple data |>.run' {} |>.run' {}
     res
 
 def dataEg := json% {"schema": [{"name": "age", "type": "Int"}, {"name": "isActive", "type": "Bool"}],
