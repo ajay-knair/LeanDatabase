@@ -133,6 +133,8 @@ def egSqlQuery₄ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), 
 
 def egSqlQuery₅ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT COUNT(*) AS count FROM table WHERE age > 30 && isActive && height < 180 GROUP BY age"
 
+def egSqlQuery₆ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT SUM(age) AS count FROM table WHERE age > 30 && isActive && height < 180 GROUP BY isActive"
+
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
   return e
@@ -178,6 +180,10 @@ elab "egSqlQuery₄" : term => do
 
 elab "egSqlQuery₅" : term => do
   let (e, _) ← egSqlQuery₅
+  return e
+
+elab "egSqlQuery₆" : term => do
+  let (e, _) ← egSqlQuery₆
   return e
 
 set_option pp.funBinderTypes true in
@@ -287,10 +293,6 @@ info: fun table ↦
 #check egSqlQuery₄
 
 /--
-info: groupSumsExprs generated
----
-info: groupCountExpr generated
----
 info: fun table ↦
   (restriction
         (fun table.coords ↦
@@ -312,6 +314,28 @@ info: fun table ↦
 -/
 #guard_msgs in
 #check egSqlQuery₅
+
+/--
+info: fun table ↦
+  (restriction
+        (fun table.coords ↦
+          let table.age := table.coords 0;
+          let table.isActive := table.coords 1;
+          let table.height := table.coords 2;
+          decide (table.age > 30) && table.isActive && decide (table.height < 180))
+        table).mapByList
+    [("count", SQLTypeProxy.int)] fun table.coords ↦
+    let table.age.sum :=
+      (fun k ↦
+          groupSum (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) k
+            table fun typedTuple ↦ typedTuple 0)
+        ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) table.coords);
+    TypedTupleOfList.cons SQLTypeProxy.int table.age.sum
+      TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("count", SQLTypeProxy.int)]))
+-/
+#guard_msgs in
+#check egSqlQuery₆
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by

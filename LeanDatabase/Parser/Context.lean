@@ -232,9 +232,9 @@ def withSchemasGroupedTupleVars (schemas : List (Name × List (Name × SQLTypePr
         inGroup name
     withLocalDeclD (schemaName ++ `coords) type fun typedTupleE => do
       let groupSumsExprs ← groupSumsE schema inGroup typedTupleE relE
-      logInfo m!"groupSumsExprs generated"
+      -- logInfo m!"groupSumsExprs generated"
       let groupCountExpr ← groupCountsE schema inGroup  typedTupleE relE
-      logInfo m!"groupCountExpr generated"
+      -- logInfo m!"groupCountExpr generated"
       let columnExprs := columnExprs ++ groupSumsExprs ++ [groupCountExpr]
       withLetColumnVars  columnExprs typedTupleE usedName
         fun letVars => do
