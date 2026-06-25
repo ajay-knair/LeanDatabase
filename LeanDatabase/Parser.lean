@@ -22,6 +22,28 @@ open Lean Meta Elab Term
 
 namespace LeanDatabase
 
+/-- `sql%(schema) "SELECT … FROM … WHERE …"` — a term-level elaborator that parses a **raw SQL
+string** against `schema` and splices in the resulting `TypedRelation` term.
+
+```lean
+abbrev sch : List (Name × List (Name × SQLTypeProxy)) :=
+  [(`t, [(`age, .int), (`active, .bool)])]
+
+theorem and_reorder :
+    sql%(sch) "SELECT * FROM t WHERE age > 30 AND active"
+      = sql%(sch) "SELECT * FROM t WHERE active AND age > 30" := by sql_equiv
+```
+
+`schema` is any Lean term of type `List (Name × List (Name × SQLTypeProxy))`; it is evaluated at
+elaboration time (via `evalExpr`) and handed to `parseSqlQuery`. -/
+elab "sql%" "(" schemaStx:term ")" queryStr:str : term => do
+  let schemaTy ← elabType (← `(List (Name × List (Name × SQLTypeProxy))))
+  let schemaExpr ← elabTermEnsuringType schemaStx (some schemaTy)
+  let schemaExpr ← instantiateMVars schemaExpr
+  let schema ← unsafe evalExpr (List (Name × List (Name × SQLTypeProxy))) schemaTy schemaExpr
+  let (e, _) ← parseSqlQuery schema queryStr.getString
+  return e
+
 /-- Parse the `first`/`second` filter strings from a JSON record (with its `schema`) and report
 whether `sql_equiv` proves them equal. -/
 def checkEquiv (data: Json) : TermElabM Bool := do

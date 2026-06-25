@@ -101,7 +101,9 @@ macro:30 t:term "AND" s:term : term =>
 macro:30 t:term "OR" s:term : term =>
   `($t || $s)
 
-macro:85 "NOT" t:term : term =>
+-- `t:term:max` so `NOT` binds *tightly* to its immediate atom/parenthesised argument:
+-- `NOT a AND b` is `(NOT a) AND b`, not `NOT (a AND b)`.
+macro:85 "NOT" t:term:max : term =>
   `(!$t)
 
 /-!

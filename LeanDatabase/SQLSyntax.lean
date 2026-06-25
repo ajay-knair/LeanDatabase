@@ -1,4 +1,5 @@
 import LeanDatabase.TypedRelation
+import LeanDatabase.Parser.Types
 
 open Lean Elab Term Meta
 open Lean
@@ -8,7 +9,7 @@ namespace LeanDatabase
 
 declare_syntax_cat sql
 
-syntax data_type := "INT" <|> "STRING" <|> "BOOL" <|> ("VARCHAR(" num ")")
+syntax data_type := "INT" <|> "STRING" <|> "BOOL" <|> "FLOAT" <|> ("VARCHAR(" num ")")
 syntax constraints := "PRIMARY" "KEY" <|> ("NOT""NULL") <|> ("UNIQUE")
 
 syntax (name := createTableCmd) "CREATE" "TABLE" ident "(" (ident data_type),* ")" : command
@@ -34,8 +35,22 @@ def elabCreateTableCmd : CommandElab := fun stx => do
       | `(data_type| INT) => `(ℤ)
       | `(data_type| STRING) => `(String)
       | `(data_type| BOOL) => `(Bool)
+      | `(data_type| FLOAT) => `(ℚ)
       | `(data_type| VARCHAR($_)) => `(String)
       | _ => `(String)
+
+    -- `<table>_schema`: the `List (Name × SQLTypeProxy)` form the `parseSqlQuery` / `sql%` path consumes.
+    let proxyList : Array (TSyntax `term) ← data_types.mapM fun
+      | `(data_type| INT) => `((.int : SQLTypeProxy))
+      | `(data_type| STRING) => `((.string : SQLTypeProxy))
+      | `(data_type| BOOL) => `((.bool : SQLTypeProxy))
+      | `(data_type| FLOAT) => `((.float : SQLTypeProxy))
+      | `(data_type| VARCHAR($_)) => `((.string : SQLTypeProxy))
+      | _ => `((.string : SQLTypeProxy))
+    let colPairs ← (idents.zip proxyList).mapM fun (id, p) => `(($(quote id.getId), $p))
+    let schemaName := Lean.mkIdent (Name.mkSimple s!"{tname.getId}_schema")
+    let schemaCmd ← `(def $schemaName : Lean.Name × List (Lean.Name × SQLTypeProxy) :=
+      ($(quote tname.getId), [$colPairs,*]))
 
     let alts_types ← typesList.mapIdxM fun idx t => do
       let idxLit := Syntax.mkNumLit (toString idx)
@@ -53,18 +68,17 @@ def elabCreateTableCmd : CommandElab := fun stx => do
     let typesDefName := Lean.mkIdent (Name.mkSimple s!"{tname.getId}_types")
     let typesDefCmd ← `(abbrev $typesDefName : Fin $n → Type := fun x => match x with $alts_types:matchAlt*)
 
-    let valueStx ← `(@LeanDatabase.TypedRelation.mk ($n) ($typesDefName) ($labels) (∅))
-
-    let cmd ← `(def $tname := $valueStx)
+    let cmd ← `(def $tname : LeanDatabase.TypedRelation $typesDefName := { labels := $labels, rows := ∅ })
     let instDecCmd ← `(instance : (i : Fin $n) → DecidableEq ($typesDefName i) :=
       fun x => match x with $alts_tc:matchAlt*)
     let instOrdCmd ← `(instance : (i : Fin $n) → LinearOrder ($typesDefName i) :=
       fun x => match x with $alts_tc:matchAlt*)
 
     elabCommand typesDefCmd
-    elabCommand cmd
     elabCommand instDecCmd
     elabCommand instOrdCmd
+    elabCommand cmd
+    elabCommand schemaCmd
 
   | _ => throwUnsupportedSyntax
 
