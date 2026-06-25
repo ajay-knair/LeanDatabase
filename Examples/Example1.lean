@@ -1,4 +1,6 @@
 import LeanDatabase.Parser
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 1 — Predicate pushdown through `UNION` (the "MapReduce" rewrite)
@@ -25,24 +27,15 @@ SELECT * FROM r2 WHERE is_high_value;
 -/
 
 namespace Example1
-open LeanDatabase
 
-variable {n : Nat}
-variable {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
-set_option linter.unusedSectionVars false
+CREATE TABLE r1 (is_high_value BOOL, val INT)
+CREATE TABLE r2 (is_high_value BOOL, val INT)
 
-variable (isHighValue : TypedTuple colType → Bool)
-
-/-- `SELECT * FROM (r1 UNION r2) WHERE is_high_value`. -/
-def query_Slow (r1 r2 : TypedRelation colType) : TypedRelation colType :=
-  restriction isHighValue (union r1 r2)
-
-/-- `(SELECT * FROM r1 WHERE is_high_value) UNION (SELECT * FROM r2 WHERE is_high_value)`. -/
-def query_Fast (r1 r2 : TypedRelation colType) : TypedRelation colType :=
-  union (restriction isHighValue r1) (restriction isHighValue r2)
-
-theorem query_equivalence (r1 r2 : TypedRelation colType) :
-    query_Slow isHighValue r1 r2 = query_Fast isHighValue r1 r2 := by
+theorem query_equivalence :
+    sql%([r1_schema, r2_schema])
+        "SELECT * FROM (SELECT * FROM r1 UNION SELECT * FROM r2) AS u WHERE is_high_value"
+      = sql%([r1_schema, r2_schema])
+        "SELECT * FROM r1 WHERE r1.is_high_value UNION SELECT * FROM r2 WHERE r2.is_high_value" := by
   sql_equiv
 
 end Example1

@@ -1,5 +1,6 @@
 import LeanDatabase.Parser
-open LeanDatabase
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 16 — `SELECT f DISTINCT (WHERE q (WHERE p))` ≡ `SELECT f (WHERE p AND q)`
@@ -15,22 +16,13 @@ SELECT DISTINCT g(R) FROM (SELECT * FROM (SELECT * FROM R WHERE q) WHERE p)
 
 namespace Example16
 
-abbrev rCT : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => Nat
-abbrev oCT : Fin 1 → Type := fun _ => Nat
-instance : ∀ i, DecidableEq (rCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
-instance : ∀ i, DecidableEq (oCT i) := fun _ => inferInstance
+-- `g(R) = a + b`; `p`, `q` are the `WHERE` predicates (modelled as `BOOL` columns).
+CREATE TABLE R (a INT, b INT, p BOOL, q BOOL)
 
-/-- a computed output row, e.g. `SELECT a + b`. -/
-abbrev g (t : TypedTuple rCT) : TypedTuple oCT := fun _ => t 0 + t 1
-
-@[simp] def query_Nested (p q : TypedTuple rCT → Bool) (R : TypedRelation rCT) : TypedRelation oCT :=
-  select (fun _ => "g") g (distinct (restriction p (restriction q R)))
-
-@[simp] def query_Flat (p q : TypedTuple rCT → Bool) (R : TypedRelation rCT) : TypedRelation oCT :=
-  select (fun _ => "g") g (restriction (fun t => p t && q t) R)
-
-theorem query_equivalence (p q : TypedTuple rCT → Bool) (R : TypedRelation rCT) :
-    query_Nested p q R = query_Flat p q R := by
+theorem query_equivalence :
+    sql%([R_schema])
+        "SELECT DISTINCT a + b AS g FROM (SELECT * FROM (SELECT * FROM R WHERE q) AS x WHERE p) AS y"
+      = sql%([R_schema]) "SELECT a + b AS g FROM R WHERE p AND q" := by
   sql_equiv
 
 end Example16

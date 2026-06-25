@@ -1,4 +1,6 @@
 import LeanDatabase.Parser
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 4 — Combine + global anti-set ≡ single combined predicate
@@ -23,28 +25,15 @@ WHERE is_active AND NOT is_banned;
 -/
 
 namespace Example4
-open LeanDatabase
 
-variable {n : Nat}
-variable {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
-set_option linter.unusedSectionVars false
+CREATE TABLE tableA (is_active BOOL, is_banned BOOL)
+CREATE TABLE tableB (is_active BOOL, is_banned BOOL)
 
-variable (isActive : TypedTuple colType → Bool)
-variable (isBanned : TypedTuple colType → Bool)
-
-/-- `(active(A) ∪ active(B)) − banned(A ∪ B)`. -/
-def query_Messy (tableA tableB : TypedRelation colType) : TypedRelation colType :=
-  minus
-    (union (restriction isActive tableA) (restriction isActive tableB))
-    (restriction isBanned (union tableA tableB))
-
-/-- `σ_{active ∧ ¬banned} (A ∪ B)`. -/
-def query_Clean (tableA tableB : TypedRelation colType) : TypedRelation colType :=
-  restriction (fun t => isActive t && !isBanned t) (union tableA tableB)
-
-theorem query_equivalence (tableA tableB : TypedRelation colType) :
-    query_Messy isActive isBanned tableA tableB =
-    query_Clean isActive isBanned tableA tableB := by
+theorem query_equivalence :
+    sql%([tableA_schema, tableB_schema])
+        "(SELECT * FROM tableA WHERE tableA.is_active UNION SELECT * FROM tableB WHERE tableB.is_active) EXCEPT SELECT * FROM (SELECT * FROM tableA UNION SELECT * FROM tableB) AS u WHERE is_banned"
+      = sql%([tableA_schema, tableB_schema])
+        "SELECT * FROM (SELECT * FROM tableA UNION SELECT * FROM tableB) AS u WHERE is_active AND NOT is_banned" := by
   sql_equiv
 
 end Example4
