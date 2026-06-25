@@ -601,7 +601,7 @@ def demo_html() -> str:
         }} else {{
           statusLine.innerHTML = data.equivalent
             ? `<span class="result-ok">Equivalent.</span>`
-            : `<span class="result-error">Not equivalent.</span>`;
+            : `<span class="result-error">Could not prove equivalent.</span>`;
         }}
       }} catch (err) {{
         statusLine.innerHTML = `<span class="result-error">Request failed:</span> ${{err.message}}`;
