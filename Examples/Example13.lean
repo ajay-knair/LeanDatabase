@@ -1,6 +1,7 @@
 import LeanDatabase.Parser
+import LeanDatabase.SQLSyntax
 
-open LeanDatabase
+open LeanDatabase Lean
 
 /-!
 # Example 13 — toolbox demo: equivalences that close "for free"
@@ -31,9 +32,14 @@ theorem select_idem (p : TypedTuple colType → Bool) (a : TypedRelation colType
     restriction p (restriction p a) = restriction p a := by
   sql_equiv
 
+CREATE TABLE table (age INT, isActive BOOL)
+CREATE TABLE table2 (age INT, isActive BOOL)
+
 /-- `a UNION (a INTERSECT b) ≡ a` (absorption). -/
-theorem union_absorb (a b : TypedRelation colType) :
-    union a (intersection a b) = a := by
+theorem union_absorb :
+    sql%([table_schema, table2_schema])
+        "SELECT * FROM table UNION (SELECT * FROM table INTERSECT SELECT * FROM table2)"
+      = sql%([table_schema, table2_schema]) "SELECT * FROM table" := by
   sql_equiv
 
 /-- Aggregation demo: a `LEFT JOIN`+`COALESCE(_,0)` count equals the correlated count. -/

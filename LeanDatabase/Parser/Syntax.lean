@@ -113,6 +113,31 @@ macro:30 t:term "AND" s:term : term =>
 macro:30 t:term "OR" s:term : term =>
   `($t || $s)
 
+-- SQL `<>` (not-equal), at comparison precedence.
+macro:50 a:term:51 " <> " b:term:51 : term =>
+  `($a != $b)
+
+-- SQL `x IN (a, b, …)` desugars to an `OR`-chain of equalities.
+macro:50 x:term:51 " IN " "(" elems:term,+ ")" : term => do
+  let cmps ← elems.getElems.mapM fun e => `($x == $e)
+  cmps.foldlM (fun acc c => `($acc || $c)) (← `(false))
+
+-- SQL `x NOT IN (a, b, …)` — negation of `IN`.
+macro:50 x:term:51 " NOT " " IN " "(" elems:term,+ ")" : term => do
+  let cmps ← elems.getElems.mapM fun e => `($x == $e)
+  let chain ← cmps.foldlM (fun acc c => `($acc || $c)) (← `(false))
+  `(!($chain))
+
+-- SQL `x BETWEEN a AND b` (inclusive). The inner `AND` is part of BETWEEN; the `:51` args keep the
+-- boolean `AND` macro (prec 30) from swallowing it.
+macro:50 x:term:51 " BETWEEN " a:term:51 " AND " b:term:51 : term =>
+  `($a ≤ $x && $x ≤ $b)
+
+-- SQL `x LIKE pat` — string match with `%`/`_` wildcards. `strLike` lives in `Operators/Like.lean`
+-- (not imported here, to keep `Syntax` pure), so emit a raw ident that resolves at the use-site.
+macro:50 x:term:51 " LIKE " p:term:51 : term =>
+  `($(Lean.mkIdent (`LeanDatabase ++ `strLike)) $p $x)
+
 -- `t:term:50` (comparison level) so `NOT` binds looser than `=`/`<`/`>` but tighter than `AND`/`OR`:
 -- `NOT a = b` is `NOT (a = b)`, and `NOT a AND b` is `(NOT a) AND b` — matching SQL precedence.
 macro:85 "NOT" t:term:50 : term =>

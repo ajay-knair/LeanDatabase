@@ -44,7 +44,7 @@ theorem or_eq_union :
 theorem or_eq_union_all :
     sql%([table_schema]) "SELECT * FROM table WHERE status = \"open\" OR priority = \"high\""
       = sql%([table_schema])
-          "SELECT * FROM table WHERE status = \"open\" UNION ALL SELECT * FROM table WHERE priority = \"high\" AND NOT status = \"open\"" := by
+          "SELECT * FROM table WHERE status = \"open\" UNION ALL SELECT * FROM table WHERE priority = \"high\" AND status <> \"open\"" := by
   sql_equiv
 
 end Example10
