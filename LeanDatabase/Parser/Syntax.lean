@@ -43,7 +43,7 @@ syntax sql_from "JOIN" ident "ON" term : sql_from     -- 3. Explicit Inner Join
 syntax sql_from "CROSS" "JOIN" ident : sql_from       -- 4. Cross Join
 syntax sql_from "," sql_from : sql_from              -- 5. Comma-separated (Cartesian Product)
 
-syntax "SELECT " sql_cols " FROM " sql_from (" WHERE " term)?  (" GROUP " " BY " ident,* (" HAVING " term)?)? (";")? : sql_query
+syntax "SELECT " (" DISTINCT ")? sql_cols " FROM " sql_from (" WHERE " term)?  (" GROUP " " BY " ident,* (" HAVING " term)?)? (" ORDER " " BY " sql_col,*)? (" LIMIT " num)? (";")? : sql_query
 
 -- Binary set operators on whole queries, as one keyword-parameterised production. Our relations
 -- are `Finset`s (sets), so `UNION ALL` maps to set `union` too (no bag semantics).

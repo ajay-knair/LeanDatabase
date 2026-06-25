@@ -1,5 +1,6 @@
 import LeanDatabase.Parser
-open LeanDatabase
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 18 — `ORDER BY` + `LIMIT` + `LIKE`
@@ -17,11 +18,11 @@ SELECT * FROM R WHERE name LIKE '%' ORDER BY age LIMIT n   ≡   SELECT * FROM R
 
 namespace Example18
 
-abbrev rCT : Fin 2 → Type := fun i => match i with | 0 => String | 1 => Nat
-instance : ∀ i, DecidableEq (rCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+CREATE TABLE table (name STRING, age INT)
 
-theorem query_equivalence (n : Nat) (key : TypedTuple rCT → Nat) (R : TypedRelation rCT) :
-    limit n (orderBy key (restriction (colLike (fun t => t 0) "%") R)) = R := by
+theorem query_equivalence :
+    sql%([table_schema]) "SELECT * FROM table WHERE name LIKE \"%\" ORDER BY age LIMIT 10"
+      = sql%([table_schema]) "SELECT * FROM table" := by
   sql_equiv
 
 end Example18

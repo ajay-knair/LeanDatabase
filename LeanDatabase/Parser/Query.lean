@@ -1,5 +1,7 @@
 import LeanDatabase.Parser.Context
 import LeanDatabase.Operators.CrossProduct
+import LeanDatabase.Operators.Select
+import LeanDatabase.Operators.OrderLimit
 
 /-!
 # Top-level query parsing
@@ -57,25 +59,37 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
       | _ => throwError "unknown set operation"
     let combined ← mkAppM opName #[lamL.beta vars.toArray, lamR.beta vars.toArray]
     return (← mkLambdaFVars vars.toArray combined, schemaL)
-  | `(sql_query| SELECT $sel FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
+  | `(sql_query| SELECT $[DISTINCT%$distinct?]? $sel:sql_cols FROM $dbs:sql_from $[WHERE $filter?]?
+      $[ORDER BY $ord:sql_col,*]? $[LIMIT $lim:num]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
     let filteredExpr ← match filter? with
       | some filter => do
         let filter ← elabTypedTupleFilter [(`table, combinedSchema)] filter
         mkAppM ``restriction #[filter, productExpr]
       | none => pure productExpr
-    match sel with
-    | `(sql_cols| *) => return (← mkLambdaFVars vars.toArray filteredExpr, combinedSchema)
-    | `(sql_cols| $cols:sql_col,*) => do
-      let colStxs := cols.getElems
-      let cols := colStxs.map sqlColTerm
-      let names := colStxs.map sqlColName |>.toList
-      let nameStrs := names.map (·.toString)
-      let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
-      let nameTypeExpr := toExpr <| nameStrs.zip types
-      let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
-      return (← mkLambdaFVars vars.toArray e', names.zip types)
-    | _ => throwError "Unexpected syntax for SQL query"
+    let (rel, outSchema) ← match sel with
+      | `(sql_cols| *) => pure (filteredExpr, combinedSchema)
+      | `(sql_cols| $cols:sql_col,*) => do
+        let colStxs := cols.getElems
+        let cols := colStxs.map sqlColTerm
+        let names := colStxs.map sqlColName |>.toList
+        let nameStrs := names.map (·.toString)
+        let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
+        let nameTypeExpr := toExpr <| nameStrs.zip types
+        let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
+        pure (e', names.zip types)
+      | _ => throwError "Unexpected syntax for SQL query"
+    -- DISTINCT / ORDER BY / LIMIT are all the identity on a `Finset` (erased by `sql_equiv`).
+    let rel ← if distinct?.isSome then mkAppM ``distinct #[rel] else pure rel
+    let rel ← match ord with
+      | none => pure rel
+      | some ords => do
+        let (key, _) ← elabTypedTupleProjection [(`table, outSchema)] (ords.getElems.toList.map sqlColTerm)
+        mkAppM ``orderBy #[key, rel]
+    let rel ← match lim with
+      | none => pure rel
+      | some k => mkAppM ``limit #[toExpr k.getNat, rel]
+    return (← mkLambdaFVars vars.toArray rel, outSchema)
   | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]?
       GROUP BY $groups:ident,* $[HAVING $having?]? $[;]?) => do
     let groupNames := groups.getElems.map (fun stx => stx.getId)
