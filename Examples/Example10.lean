@@ -1,4 +1,6 @@
 import LeanDatabase.Parser
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 10 — `OR` predicate ≡ `UNION` ≡ disjoint `UNION ALL`
@@ -28,30 +30,21 @@ SELECT * FROM tickets WHERE priority = 'high' AND status <> 'open';
 -/
 
 namespace Example10
-open LeanDatabase
 
-variable {n : Nat}
-variable {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
-set_option linter.unusedSectionVars false
+CREATE TABLE table (status STRING, priority STRING)
 
-variable (isOpen : TypedTuple colType → Bool)
-variable (isHigh : TypedTuple colType → Bool)
+/-- `query_Or` ≡ `query_Union`. -/
+theorem or_eq_union :
+    sql%([table_schema]) "SELECT * FROM table WHERE status = \"open\" OR priority = \"high\""
+      = sql%([table_schema])
+          "SELECT * FROM table WHERE status = \"open\" UNION SELECT * FROM table WHERE priority = \"high\"" := by
+  sql_equiv
 
-/-- `SELECT * FROM tickets WHERE status='open' OR priority='high'`. -/
-def query_Or (tickets : TypedRelation colType) : TypedRelation colType :=
-  restriction (pOr isOpen isHigh) tickets
-
-/-- `(WHERE status='open') UNION (WHERE priority='high')`. -/
-def query_Union (tickets : TypedRelation colType) : TypedRelation colType :=
-  union (restriction isOpen tickets) (restriction isHigh tickets)
-
-/-- `(WHERE status='open') UNION ALL (WHERE priority='high' AND status<>'open')`. -/
-def query_UnionAll (tickets : TypedRelation colType) : TypedRelation colType :=
-  union (restriction isOpen tickets) (restriction (pAnd isHigh (pNot isOpen)) tickets)
-
-theorem query_equivalence (tickets : TypedRelation colType) :
-    query_Or isOpen isHigh tickets = query_Union isOpen isHigh tickets ∧
-    query_Or isOpen isHigh tickets = query_UnionAll isOpen isHigh tickets := by
+/-- `query_Or` ≡ `query_UnionAll` (disjoint branches). -/
+theorem or_eq_union_all :
+    sql%([table_schema]) "SELECT * FROM table WHERE status = \"open\" OR priority = \"high\""
+      = sql%([table_schema])
+          "SELECT * FROM table WHERE status = \"open\" UNION ALL SELECT * FROM table WHERE priority = \"high\" AND NOT status = \"open\"" := by
   sql_equiv
 
 end Example10

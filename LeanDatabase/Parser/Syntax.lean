@@ -45,6 +45,18 @@ syntax sql_from "," sql_from : sql_from              -- 5. Comma-separated (Cart
 
 syntax "SELECT " sql_cols " FROM " sql_from (" WHERE " term)?  (" GROUP " " BY " ident,* (" HAVING " term)?)? (";")? : sql_query
 
+-- Binary set operators on whole queries, as one keyword-parameterised production. Our relations
+-- are `Finset`s (sets), so `UNION ALL` maps to set `union` too (no bag semantics).
+declare_syntax_cat sql_setop
+syntax " UNION " " ALL " : sql_setop
+syntax " UNION " : sql_setop
+syntax " INTERSECT " : sql_setop
+syntax " EXCEPT " : sql_setop
+syntax:40 sql_query:40 sql_setop sql_query:41 : sql_query
+
+-- Parenthesised query, for grouping set-ops: `a UNION (a INTERSECT b)`.
+syntax:max "(" sql_query ")" : sql_query
+
 -- macro_rules -- Gemini generated (then fixed) rules for desugaring JOINs and CROSS JOINs into comma-separated FROM clauses with WHERE conditions; GROUP BY omitted for now.
 --   -----------------------------------------------------------------------------
 --   -- CASE A: The query ALREADY has an existing WHERE clause
@@ -101,9 +113,9 @@ macro:30 t:term "AND" s:term : term =>
 macro:30 t:term "OR" s:term : term =>
   `($t || $s)
 
--- `t:term:max` so `NOT` binds *tightly* to its immediate atom/parenthesised argument:
--- `NOT a AND b` is `(NOT a) AND b`, not `NOT (a AND b)`.
-macro:85 "NOT" t:term:max : term =>
+-- `t:term:50` (comparison level) so `NOT` binds looser than `=`/`<`/`>` but tighter than `AND`/`OR`:
+-- `NOT a = b` is `NOT (a = b)`, and `NOT a AND b` is `(NOT a) AND b` — matching SQL precedence.
+macro:85 "NOT" t:term:50 : term =>
   `(!$t)
 
 /-!

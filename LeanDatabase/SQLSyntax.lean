@@ -5,6 +5,9 @@ open Lean Elab Term Meta
 open Lean
 open Lean.Parser.Term
 
+set_option linter.unusedVariables false
+
+
 namespace LeanDatabase
 
 declare_syntax_cat sql

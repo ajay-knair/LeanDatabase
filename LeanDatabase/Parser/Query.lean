@@ -32,14 +32,31 @@ def parseTypedRelFilter  (schemasStr : List (String × List (String × String)))
   elabTypedRelFilterSimple schemas stx
 
 /--
-This is the main entry point for parsing a full SQL query, which includes the "SELECT", "FROM", and "WHERE" clauses. For simplicity, we only handle "SELECT *" and a single table in the "FROM" clause, but this can be extended in the future. The output is an expression representing the filter to be applied to the database, along with the schema of the table returned.
+This is the main entry point for parsing a full SQL query (`SELECT` / `FROM` / `WHERE` / `GROUP BY`),
+plus the binary set operators `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT` and parenthesised
+grouping. Returns a function of the table variables, comparable for equality with `sql_equiv`.
 
-This is in the context of table variables. The expressions returned can be compared for equality, containment etc. using the `sql_equiv` tactic.
+Set-op arms recurse on each side (both return `fun tables => relation`), then β-apply the table vars
+to recover each relation body, combine with `union` / `intersection`, etc. and re-bind once.
 -/
-def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
+partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
     TermElabM (Expr × List (Name × SQLTypeProxy)) :=  do
   let stx ← escapeJoin stx
+  let vars := tableVars.map (fun (relVar, _, _) => relVar)
   match stx with
+  | `(sql_query| ( $q:sql_query )) => elabSqlQueryCore tableVars q
+  | `(sql_query| $l:sql_query $op:sql_setop $r:sql_query) => do
+    let (lamL, schemaL) ← elabSqlQueryCore tableVars l
+    let (lamR, schemaR) ← elabSqlQueryCore tableVars r
+    unless schemaL.map (·.2) == schemaR.map (·.2) do
+      throwError "set operation requires both queries to have the same column types"
+    let opName ← match op with
+      | `(sql_setop| UNION ALL) | `(sql_setop| UNION) => pure ``union
+      | `(sql_setop| INTERSECT) => pure ``intersection
+      | `(sql_setop| EXCEPT)    => pure ``minus
+      | _ => throwError "unknown set operation"
+    let combined ← mkAppM opName #[lamL.beta vars.toArray, lamR.beta vars.toArray]
+    return (← mkLambdaFVars vars.toArray combined, schemaL)
   | `(sql_query| SELECT $sel FROM $dbs:sql_from $[WHERE $filter?]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
     let filteredExpr ← match filter? with
@@ -48,9 +65,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
         mkAppM ``restriction #[filter, productExpr]
       | none => pure productExpr
     match sel with
-    | `(sql_cols| *) => do
-      let vars := tableVars.map (fun (relVar, _, _) => relVar)
-      return (← mkLambdaFVars vars.toArray filteredExpr, combinedSchema)
+    | `(sql_cols| *) => return (← mkLambdaFVars vars.toArray filteredExpr, combinedSchema)
     | `(sql_cols| $cols:sql_col,*) => do
       let colStxs := cols.getElems
       let cols := colStxs.map sqlColTerm
@@ -59,7 +74,6 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
       let (m, types) ← elabTypedTupleProjection [(`table, combinedSchema)] cols.toList
       let nameTypeExpr := toExpr <| nameStrs.zip types
       let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
-      let vars := tableVars.map (fun (relVar, _, _) => relVar)
       return (← mkLambdaFVars vars.toArray e', names.zip types)
     | _ => throwError "Unexpected syntax for SQL query"
   | `(sql_query| SELECT $cols:sql_col,* FROM $dbs:sql_from $[WHERE $filter?]?
@@ -79,7 +93,6 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     let (m, types) ← elabTypedTupleGroupProjection [(`table, combinedSchema)] cols.toList inGroup productExpr
     let nameTypeExpr := toExpr <| nameStrs.zip types
     let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
-    let vars := tableVars.map (fun (relVar, _, _) => relVar)
     return (← mkLambdaFVars vars.toArray e', names.zip types)
   | _ => throwError "Unexpected syntax for SQL query"
   where productPair (dbs: TSyntax `sql_from) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
@@ -94,7 +107,6 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     let productExpr ← tailExprs.foldlM (fun acc rel => do
       mkAppM ``TypedRelationOfList.append #[acc, rel]) headExpr
     return (productExpr, combinedSchema)
-
 
 def elabSqlQuery (tables : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
     TermElabM (Expr × List (Name × SQLTypeProxy)) := withTableVars tables fun tableVars => do

@@ -28,7 +28,6 @@ Possible future work: extend this tactic to also be able to disprove using `plau
 -/
 
 macro "sql_equiv" : tactic => `(tactic|
-  first | sql_simp <;> grind +locals |
   (
    repeat (first
      | (apply TypedRelation.ext <;> try rfl)
