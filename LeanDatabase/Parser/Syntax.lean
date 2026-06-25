@@ -138,6 +138,16 @@ macro:50 x:term:51 " BETWEEN " a:term:51 " AND " b:term:51 : term =>
 macro:50 x:term:51 " LIKE " p:term:51 : term =>
   `($(Lean.mkIdent (`LeanDatabase ++ `strLike)) $p $x)
 
+-- SQL `EXISTS (subquery)` / `NOT EXISTS (subquery)` — correlated; intercepted as a `WHERE` form by
+-- `Parser.Query` (→ `semijoin` / `antijoin`), so this syntax is only ever matched, never elaborated.
+syntax:90 "EXISTS" "(" sql_query ")" : term
+syntax:90 "NOT" "EXISTS" "(" sql_query ")" : term
+
+-- SQL `x IN (subquery)` / `x NOT IN (subquery)` — also intercepted by `Parser.Query` (→
+-- `semijoin`/`antijoin` on the implicit equality `x = innerColumn`). Distinct from the IN-list forms.
+syntax:90 term:91 " IN " "(" sql_query ")" : term
+syntax:90 term:91 " NOT " " IN " "(" sql_query ")" : term
+
 -- `t:term:50` (comparison level) so `NOT` binds looser than `=`/`<`/`>` but tighter than `AND`/`OR`:
 -- `NOT a = b` is `NOT (a = b)`, and `NOT a AND b` is `(NOT a) AND b` — matching SQL precedence.
 macro:85 "NOT" t:term:50 : term =>

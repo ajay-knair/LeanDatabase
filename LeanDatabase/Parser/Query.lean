@@ -2,6 +2,7 @@ import LeanDatabase.Parser.Context
 import LeanDatabase.Operators.CrossProduct
 import LeanDatabase.Operators.Select
 import LeanDatabase.Operators.OrderLimit
+import LeanDatabase.Operators.Join
 
 /-!
 # Top-level query parsing
@@ -62,13 +63,8 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
   | `(sql_query| SELECT $[DISTINCT%$distinct?]? $sel:sql_cols FROM $dbs:sql_from $[WHERE $filter?]?
       $[ORDER BY $ord:sql_col,*]? $[LIMIT $lim:num]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
-    -- `combinedSchema` is already fully-qualified (`parseSqlQuery` ran `schemaWithFullNames`), so we
-    -- pass `.anonymous` as the schema name: it is a prefix of every column, i.e. the *identity*
-    -- prefix, so the per-operator elaborators don't re-qualify (which would mangle `table2.col`).
     let filteredExpr ← match filter? with
-      | some filter => do
-        let filter ← elabTypedTupleFilter [(.anonymous, combinedSchema)] filter
-        mkAppM ``restriction #[filter, productExpr]
+      | some filter => elabWhere productExpr combinedSchema filter
       | none => pure productExpr
     let (rel, outSchema) ← match sel with
       | `(sql_cols| *) => pure (filteredExpr, combinedSchema)
@@ -112,9 +108,9 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
     let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
     return (← mkLambdaFVars vars.toArray e', names.zip types)
   | _ => throwError "Unexpected syntax for SQL query"
-  -- The FROM relation + its schema: a base table, a comma cartesian product, or a `(subquery) AS
-  -- alias` (elaborated via `elabSqlQueryCore`, then β-reduced to its body; the inner schema is kept).
-  where productPair (dbs: TSyntax `sql_from) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
+  where
+  -- The FROM relation + its schema
+  productPair (dbs: TSyntax `sql_from) : TermElabM (Expr × List (Name × SQLTypeProxy)) := do
     match dbs with
     | `(sql_from| $db:ident) => do
       let .some (tableExpr, _, columns) :=
@@ -130,6 +126,36 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
       let (e2, s2) ← productPair f2
       return (← mkAppM ``TypedRelationOfList.append #[e1, e2], s1 ++ s2)
     | _ => throwError "Unsupported FROM clause: {← PrettyPrinter.ppCategory `sql_from dbs}"
+  -- Apply a `WHERE` clause to `rel`. `[NOT] EXISTS (subquery)` and `x [NOT] IN (subquery)` become a
+  -- `semijoin`/`antijoin`; anything else is an ordinary `restriction` by a tuple predicate.
+  elabWhere (rel : Expr) (schema : List (Name × SQLTypeProxy)) (filter : Term) : TermElabM Expr := do
+    match filter with
+    | `(EXISTS ( $inner:sql_query ))     => elabExists rel schema inner none false
+    | `(NOT EXISTS ( $inner:sql_query )) => elabExists rel schema inner none true
+    | `($oc:term IN ( $inner:sql_query ))     => elabExists rel schema inner (some oc) false
+    | `($oc:term NOT IN ( $inner:sql_query )) => elabExists rel schema inner (some oc) true
+    | _ => do
+      let f ← elabTypedTupleFilter [(.anonymous, schema)] filter
+      mkAppM ``restriction #[f, rel]
+  
+  elabExists (rel : Expr) (outerSchema : List (Name × SQLTypeProxy)) (inner : TSyntax `sql_query)
+      (inCol? : Option Term) (isNeg : Bool) : TermElabM Expr := do
+    match inner with
+    | `(sql_query| SELECT $sel:sql_cols FROM $sdb:sql_from $[WHERE $corr?]? $[;]?) => do
+      let some innerName := (getIdents sdb).head? | throwError "subquery expects a single inner table"
+      let (sExpr, sSchema) ← productPair sdb
+      let corr ← match inCol?, corr? with
+        | some oc, _ => do                                  -- `oc IN (SELECT c FROM …)`  ⇒  `oc = c`
+          match sel with
+          | `(sql_cols| $c:sql_col,*) =>
+            let #[col] := c.getElems | throwError "IN subquery must SELECT exactly one column"
+            `($oc = $(sqlColTerm col))
+          | _ => throwError "IN subquery must SELECT exactly one column"
+        | none, some corr => pure corr                      -- `EXISTS (… WHERE corr)`
+        | none, none => throwError "EXISTS subquery needs a correlating WHERE condition"
+      let cond ← elabTypedTupleFilter [(.anonymous, outerSchema), (innerName, sSchema)] corr
+      mkAppM (if isNeg then ``antijoin else ``semijoin) #[rel, sExpr, cond]
+    | _ => throwError "subquery expects `SELECT … FROM table …`"
 
 def elabSqlQuery (tables : List (Name × List (Name × SQLTypeProxy))) (stx: Syntax) :
     TermElabM (Expr × List (Name × SQLTypeProxy)) := withTableVars tables fun tableVars => do

@@ -1,5 +1,6 @@
 import LeanDatabase.Parser
-open LeanDatabase
+import LeanDatabase.SQLSyntax
+open LeanDatabase Lean
 
 /-!
 # Example 5 — `EXISTS` correlated subquery ≡ `IN` subquery (semi-join)
@@ -18,25 +19,14 @@ SELECT * FROM customers c WHERE c.customer_id IN (SELECT customer_id FROM orders
 
 namespace Example5
 
-abbrev custCT : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => String
-abbrev ordCT  : Fin 2 → Type := fun i => match i with | 0 => Nat | 1 => Int
-instance : ∀ i, DecidableEq (custCT i) := fun i => match i with | 0 => inferInstance | 1 => inferInstance
-instance : ∀ i, DecidableEq (ordCT i)  := fun i => match i with | 0 => inferInstance | 1 => inferInstance
+CREATE TABLE customers (customer_id INT, name STRING)
+CREATE TABLE orders (customer_id INT, total INT)
 
-abbrev ordKey : TypedTuple ordCT → Nat := fun t => t 0
-
-/-- `... WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`. -/
-def query_Exists (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
-    TypedRelation custCT :=
-  restriction (fun c => decide (group ordKey (c 0) orders).rows.Nonempty) customers
-
-/-- `... WHERE c.customer_id IN (SELECT customer_id FROM orders)`. -/
-def query_In (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
-    TypedRelation custCT :=
-  restriction (fun c => decide (c 0 ∈ groupKeys ordKey orders)) customers
-
-theorem query_equivalence (customers : TypedRelation custCT) (orders : TypedRelation ordCT) :
-    query_Exists customers orders = query_In customers orders := by
+theorem query_equivalence :
+    sql%([customers_schema, orders_schema])
+        "SELECT * FROM customers WHERE EXISTS (SELECT * FROM orders WHERE orders.customer_id = customers.customer_id)"
+      = sql%([customers_schema, orders_schema])
+        "SELECT * FROM customers WHERE customers.customer_id IN (SELECT orders.customer_id FROM orders)" := by
   sql_equiv
 
 end Example5
