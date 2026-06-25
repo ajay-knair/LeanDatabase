@@ -76,7 +76,7 @@ def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQLTypePro
     let cols := colStxs.map sqlColTerm
     let names := colStxs.map sqlColName |>.toList
     let nameStrs := names.map (·.toString)
-    let (m, types) ← elabTypedTupleGroupProjection [(`table, combinedSchema)] cols.toList inGroup
+    let (m, types) ← elabTypedTupleGroupProjection [(`table, combinedSchema)] cols.toList inGroup productExpr
     let nameTypeExpr := toExpr <| nameStrs.zip types
     let e' ← mkAppM ``TypedRelation.mapByList #[filteredExpr, nameTypeExpr, m]
     let vars := tableVars.map (fun (relVar, _, _) => relVar)
@@ -185,9 +185,15 @@ set_option pp.funBinderTypes true in
 info: fun (table : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦
   restriction
     (fun (table.coords : TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦
-      let table.age := table.coords ⟨0, ⋯⟩;
-      let table.isActive := table.coords ⟨1, ⋯⟩;
-      let table.height := table.coords ⟨2, ⋯⟩;
+      let table.age.proj :=
+        fun (typedTuple : TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦ typedTuple 0;
+      let table.age := table.age.proj table.coords;
+      let table.isActive.proj :=
+        fun (typedTuple : TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦ typedTuple 1;
+      let table.isActive := table.isActive.proj table.coords;
+      let table.height.proj :=
+        fun (typedTuple : TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦ typedTuple 2;
+      let table.height := table.height.proj table.coords;
       decide (table.age > 30) && table.isActive && decide (table.height < 180))
     table : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float])
@@ -210,13 +216,17 @@ example : TypedTupleOfList [] := by
 info: fun table ↦
   (restriction
         (fun table.coords ↦
-          let table.age := table.coords ⟨0, ⋯⟩;
-          let table.isActive := table.coords ⟨1, ⋯⟩;
-          let table.height := table.coords ⟨2, ⋯⟩;
+          let table.age.proj := fun typedTuple ↦ typedTuple 0;
+          let table.age := table.age.proj table.coords;
+          let table.isActive.proj := fun typedTuple ↦ typedTuple 1;
+          let table.isActive := table.isActive.proj table.coords;
+          let table.height.proj := fun typedTuple ↦ typedTuple 2;
+          let table.height := table.height.proj table.coords;
           decide (table.age > 30) && table.isActive && decide (table.height < 180))
         table).mapByList
     [("table.age", SQLTypeProxy.int)] fun table.coords ↦
-    let table.age := table.coords ⟨0, ⋯⟩;
+    let table.age.proj := fun typedTuple ↦ typedTuple 0;
+    let table.age := table.age.proj table.coords;
     TypedTupleOfList.cons SQLTypeProxy.int table.age
       TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("table.age", SQLTypeProxy.int)]))
@@ -229,14 +239,19 @@ info: fun table ↦
 info: fun table ↦
   (restriction
         (fun table.coords ↦
-          let table.age := table.coords ⟨0, ⋯⟩;
-          let table.isActive := table.coords ⟨1, ⋯⟩;
-          let table.height := table.coords ⟨2, ⋯⟩;
+          let table.age.proj := fun typedTuple ↦ typedTuple 0;
+          let table.age := table.age.proj table.coords;
+          let table.isActive.proj := fun typedTuple ↦ typedTuple 1;
+          let table.isActive := table.isActive.proj table.coords;
+          let table.height.proj := fun typedTuple ↦ typedTuple 2;
+          let table.height := table.height.proj table.coords;
           decide (table.age > 30) && table.isActive && decide (table.height < 180))
         table).mapByList
     [("table.age", SQLTypeProxy.int), ("table.height", SQLTypeProxy.float)] fun table.coords ↦
-    let table.age := table.coords ⟨0, ⋯⟩;
-    let table.height := table.coords ⟨2, ⋯⟩;
+    let table.age.proj := fun typedTuple ↦ typedTuple 0;
+    let table.age := table.age.proj table.coords;
+    let table.height.proj := fun typedTuple ↦ typedTuple 2;
+    let table.height := table.height.proj table.coords;
     TypedTupleOfList.cons SQLTypeProxy.int table.age
       (TypedTupleOfList.cons SQLTypeProxy.float table.height
         TypedTupleOfList.nil) : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
@@ -253,9 +268,12 @@ info: fun table ↦
 info: fun table table2 ↦
   restriction
     (fun table.coords ↦
-      let table.age := table.coords ⟨0, ⋯⟩;
-      let table.isActive := table.coords ⟨1, ⋯⟩;
-      let table.height := table.coords ⟨2, ⋯⟩;
+      let table.age.proj := fun typedTuple ↦ typedTuple 0;
+      let table.age := table.age.proj table.coords;
+      let table.isActive.proj := fun typedTuple ↦ typedTuple 1;
+      let table.isActive := table.isActive.proj table.coords;
+      let table.height.proj := fun typedTuple ↦ typedTuple 2;
+      let table.height := table.height.proj table.coords;
       decide (table.age > 30) && table.isActive && decide (table.height < 180))
     (table.append
       table2) : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
@@ -272,13 +290,17 @@ info: fun table table2 ↦
 info: fun table ↦
   (restriction
         (fun table.coords ↦
-          let table.age := table.coords ⟨0, ⋯⟩;
-          let table.isActive := table.coords ⟨1, ⋯⟩;
-          let table.height := table.coords ⟨2, ⋯⟩;
+          let table.age.proj := fun typedTuple ↦ typedTuple 0;
+          let table.age := table.age.proj table.coords;
+          let table.isActive.proj := fun typedTuple ↦ typedTuple 1;
+          let table.isActive := table.isActive.proj table.coords;
+          let table.height.proj := fun typedTuple ↦ typedTuple 2;
+          let table.height := table.height.proj table.coords;
           decide (table.age > 30) && table.isActive && decide (table.height < 180))
         table).mapByList
     [("doubled_age", SQLTypeProxy.int)] fun table.coords ↦
-    let table.age := table.coords ⟨0, ⋯⟩;
+    let table.age.proj := fun typedTuple ↦ typedTuple 0;
+    let table.age := table.age.proj table.coords;
     TypedTupleOfList.cons SQLTypeProxy.int (2 * table.age)
       TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("doubled_age", SQLTypeProxy.int)]))
@@ -287,14 +309,32 @@ info: fun table ↦
 #check egSqlQuery₄
 
 /--
-error: Application type mismatch: The argument
-  table
-has type
-  TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]
-but is expected to have type
-  TypedTupleOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]
-in the application
-  (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) table
+info: groupSumsExprs generated
+---
+info: groupCountExpr generated
+---
+info: fun table ↦
+  (restriction
+        (fun table.coords ↦
+          let table.age.proj := fun typedTuple ↦ typedTuple 0;
+          let table.age := table.age.proj table.coords;
+          let table.isActive.proj := fun typedTuple ↦ typedTuple 1;
+          let table.isActive := table.isActive.proj table.coords;
+          let table.height.proj := fun typedTuple ↦ typedTuple 2;
+          let table.height := table.height.proj table.coords;
+          decide (table.age > 30) && table.isActive && decide (table.height < 180))
+        table).mapByList
+    [("count", SQLTypeProxy.int)] fun table.coords ↦
+    let countAll.proj := fun table.coords ↦
+      (fun k ↦
+          Int.ofNat
+            (groupCount (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) k
+              table))
+        ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) table.coords);
+    let countAll := countAll.proj table.coords;
+    TypedTupleOfList.cons SQLTypeProxy.int countAll
+      TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("count", SQLTypeProxy.int)]))
 -/
 #guard_msgs in
 #check egSqlQuery₅
