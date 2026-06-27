@@ -192,6 +192,11 @@ def groupMinInt
     (f t = groupMinInt key (key t) rel f) ↔ ∀ s ∈ (group key (key t) rel).rows, f t ≤ f s :=
   eq_groupMinInt_iff key (key t) rel f t (self_mem_group key rel t ht)
 
+def groupAvg (key : TypedTuple colType → K)
+    (k : K)
+    (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) : Int := (groupSum key k rel f)/ (Int.ofNat (groupCount key k rel))
+
 /-- A group is non-empty iff its key occurs (`EXISTS`/`IN`/`NOT EXISTS`/`NOT IN` bridge). -/
 @[grind =] theorem group_nonempty_iff (key : TypedTuple colType → K) (k : K)
     (rel : TypedRelation colType) : (group key k rel).rows.Nonempty ↔ k ∈ groupKeys key rel := by
@@ -325,5 +330,5 @@ end LeanDatabase.TypedAgg
 /- Re-export the aggregate operators into the top-level `LeanDatabase` namespace-/
 namespace LeanDatabase
 export LeanDatabase.TypedAgg
-  (group groupCount groupSum groupKeys groupMax groupMaxInt groupMinInt relCount relSum relMax relMin relCountDistinct relAvg groupBy)
+  (group groupCount groupSum groupKeys groupMax groupMaxInt groupMinInt groupAvg relCount relSum relMax relMin relCountDistinct relAvg groupBy)
 end LeanDatabase
