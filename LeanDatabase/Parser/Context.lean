@@ -177,6 +177,69 @@ def groupSumsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → 
       let sumValue ← mkLambdaFVars #[typedTupleVar] sumValue
       pure ((name, colType), sumValue)
 
+def groupMaxesE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → Bool) (typedTupleVar relE: Expr) :
+  MetaM <| List ((Name × SQLTypeProxy) × Expr) := do
+    let intColumnNames :=
+      schema.filterMap fun (name, colType) =>
+        if !(columnInGroup name) && colType == SQLTypeProxy.int then some name else none
+    let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
+    let (_, _, allColsE) ← columnProjectionsE schema
+    let funcFromProjection ← withLocalDeclD `k codomainE fun keyVar => do
+      allColsE.filterMapM fun ((name, colType), projE) => do
+        if intColumnNames.contains name then do
+          let maxE ← mkAppM ``groupMaxInt #[keyMapE, keyVar, relE, projE]
+          let maxE ← mkLambdaFVars #[keyVar] maxE
+          pure <| some (name ++ `max, colType, maxE)
+        else
+          pure none
+    let keyValue ← mkAppM' keyMapE #[typedTupleVar]
+    funcFromProjection.mapM fun (name, colType, maxE) => do
+      let maxValue ← mkAppM' maxE #[keyValue]
+      let maxValue ← mkLambdaFVars #[typedTupleVar] maxValue
+      pure ((name, colType), maxValue)
+
+  def groupMinsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → Bool) (typedTupleVar relE: Expr) :
+  MetaM <| List ((Name × SQLTypeProxy) × Expr) := do
+    let intColumnNames :=
+      schema.filterMap fun (name, colType) =>
+        if !(columnInGroup name) && colType == SQLTypeProxy.int then some name else none
+    let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
+    let (_, _, allColsE) ← columnProjectionsE schema
+    let funcFromProjection ← withLocalDeclD `k codomainE fun keyVar => do
+      allColsE.filterMapM fun ((name, colType), projE) => do
+        if intColumnNames.contains name then do
+          let minE ← mkAppM ``groupMinInt #[keyMapE, keyVar, relE, projE]
+          let minE ← mkLambdaFVars #[keyVar] minE
+          pure <| some (name ++ `min, colType, minE)
+        else
+          pure none
+    let keyValue ← mkAppM' keyMapE #[typedTupleVar]
+    funcFromProjection.mapM fun (name, colType, minE) => do
+      let minValue ← mkAppM' minE #[keyValue]
+      let minValue ← mkLambdaFVars #[typedTupleVar] minValue
+      pure ((name, colType), minValue)
+
+def groupAvgsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → Bool) (typedTupleVar relE: Expr) :
+  MetaM <| List ((Name × SQLTypeProxy) × Expr) := do
+    let intColumnNames := -- columns for which we want sums
+      schema.filterMap fun (name, colType) =>
+        if !(columnInGroup name) && colType == SQLTypeProxy.int then some name else none
+    let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
+    let (_, _, allColsE) ← columnProjectionsE schema
+    let funcFromProjection ←  withLocalDeclD `k codomainE fun keyVar => do
+      allColsE.filterMapM fun ((name, colType), projE) => do
+        if intColumnNames.contains name then do
+          let avgE ← mkAppM ``groupAvg #[keyMapE, keyVar, relE, projE]
+          let avgE ← mkLambdaFVars #[keyVar] avgE
+          pure <| some (name ++ `avg, colType, avgE)
+        else
+          pure none
+    let keyValue ← mkAppM' keyMapE #[typedTupleVar]
+    funcFromProjection.mapM fun (name, colType, avgE) => do
+      let avgValue ← mkAppM' avgE #[keyValue]
+      let avgValue ← mkLambdaFVars #[typedTupleVar] avgValue
+      pure ((name, colType), avgValue)
+
 def groupCountsE (schema : List (Name × SQLTypeProxy)) (columnInGroup : Name → Bool) (typedTupleVar relE: Expr) :
   MetaM <| (Name × SQLTypeProxy) × Expr := do
   let (keyMapE, _, codomainE) ← subcolumsProjectionsE schema columnInGroup
@@ -235,7 +298,10 @@ def withSchemasGroupedTupleVars (schemas : List (Name × List (Name × SQLTypePr
       -- logInfo m!"groupSumsExprs generated"
       let groupCountExpr ← groupCountsE schema inGroup  typedTupleE relE
       -- logInfo m!"groupCountExpr generated"
-      let columnExprs := columnExprs ++ groupSumsExprs ++ [groupCountExpr]
+      let groupMaxesExprs ← groupMaxesE schema inGroup typedTupleE relE
+      let groupMinsExprs ← groupMinsE schema inGroup typedTupleE relE
+      let groupAvgsExprs ← groupAvgsE schema inGroup typedTupleE relE
+      let columnExprs := columnExprs ++ groupSumsExprs ++ [groupCountExpr] ++ groupMaxesExprs ++ groupMinsExprs ++ groupAvgsExprs
       withLetColumnVars  columnExprs typedTupleE usedName
         fun letVars => do
           withSchemasGroupedTupleVars rest usedName inGroup relE fun rest =>

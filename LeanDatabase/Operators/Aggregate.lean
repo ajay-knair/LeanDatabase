@@ -115,6 +115,16 @@ def groupMax (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colTy
     (f : TypedTuple colType → Nat) : Nat :=
   (group key k rel).rows.sup f
 
+def groupMaxInt
+    (key : TypedTuple colType → K)
+    (k : K)
+    (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) : Int :=
+  if h : (group key k rel).rows.Nonempty then
+    (group key k rel).rows.sup' h f
+  else
+    0
+
 /-- `f t` is the group `MAX(f)` **iff** `t` is `f`-maximal in its group. -/
 @[grind .] theorem eq_groupMax_iff (key : TypedTuple colType → K) (k : K)
     (rel : TypedRelation colType) (f : TypedTuple colType → Nat) (t : TypedTuple colType)
@@ -126,11 +136,66 @@ def groupMax (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colTy
   · intro h
     exact Nat.le_antisymm (Finset.le_sup ht) (Finset.sup_le h)
 
+@[grind .] theorem eq_groupMaxInt_iff (key : TypedTuple colType → K) (k : K)
+    (rel : TypedRelation colType) (f : TypedTuple colType → Int) (t : TypedTuple colType)
+    (ht : t ∈ (group key k rel).rows) :
+    f t = groupMaxInt key k rel f ↔ ∀ s ∈ (group key k rel).rows, f s ≤ f t := by
+  unfold groupMaxInt
+  rw [dif_pos ⟨t, ht⟩]
+  constructor
+  · intro h s hs
+    rw [h]
+    exact Finset.le_sup' f hs
+  · intro h
+    apply PartialOrder.le_antisymm
+    · apply Finset.le_sup' f ht
+    · exact Finset.sup'_le ⟨t, ht⟩ f h
+
 /-- `simp`-friendly form of `eq_groupMax_iff` keyed on table membership `t ∈ rel.rows`. -/
 @[simp] theorem eq_groupMax_table (key : TypedTuple colType → K) (f : TypedTuple colType → Nat)
     (rel : TypedRelation colType) (t : TypedTuple colType) (ht : t ∈ rel.rows) :
     (f t = groupMax key (key t) rel f) ↔ ∀ s ∈ (group key (key t) rel).rows, f s ≤ f t :=
   eq_groupMax_iff key (key t) rel f t (self_mem_group key rel t ht)
+
+@[simp] theorem eq_groupMaxInt_table (key : TypedTuple colType → K) (f : TypedTuple colType → Int)
+    (rel : TypedRelation colType) (t : TypedTuple colType) (ht : t ∈ rel.rows) :
+    (f t = groupMaxInt key (key t) rel f) ↔ ∀ s ∈ (group key (key t) rel).rows, f s ≤ f t :=
+  eq_groupMaxInt_iff key (key t) rel f t (self_mem_group key rel t ht)
+
+def groupMinInt
+    (key : TypedTuple colType → K)
+    (k : K)
+    (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) : Int :=
+  if h : (group key k rel).rows.Nonempty then
+    (group key k rel).rows.inf' h f
+  else
+    0
+
+@[grind .] theorem eq_groupMinInt_iff (key : TypedTuple colType → K) (k : K)
+    (rel : TypedRelation colType) (f : TypedTuple colType → Int) (t : TypedTuple colType)
+    (ht : t ∈ (group key k rel).rows) :
+    f t = groupMinInt key k rel f ↔ ∀ s ∈ (group key k rel).rows, f t ≤ f s := by
+  unfold groupMinInt
+  rw [dif_pos ⟨t, ht⟩]
+  constructor
+  · intro h s hs
+    rw [h]
+    exact Finset.inf'_le f hs
+  · intro h
+    apply PartialOrder.le_antisymm
+    · apply Finset.le_inf' ⟨t, ht⟩ f h
+    · exact Finset.inf'_le f ht
+
+@[simp] theorem eq_groupMinInt_table (key : TypedTuple colType → K) (f : TypedTuple colType → Int)
+    (rel : TypedRelation colType) (t : TypedTuple colType) (ht : t ∈ rel.rows) :
+    (f t = groupMinInt key (key t) rel f) ↔ ∀ s ∈ (group key (key t) rel).rows, f t ≤ f s :=
+  eq_groupMinInt_iff key (key t) rel f t (self_mem_group key rel t ht)
+
+def groupAvg (key : TypedTuple colType → K)
+    (k : K)
+    (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) : Int := (groupSum key k rel f)/ (Int.ofNat (groupCount key k rel))
 
 /-- A group is non-empty iff its key occurs (`EXISTS`/`IN`/`NOT EXISTS`/`NOT IN` bridge). -/
 @[grind =] theorem group_nonempty_iff (key : TypedTuple colType → K) (k : K)
@@ -265,5 +330,5 @@ end LeanDatabase.TypedAgg
 /- Re-export the aggregate operators into the top-level `LeanDatabase` namespace-/
 namespace LeanDatabase
 export LeanDatabase.TypedAgg
-  (group groupCount groupSum groupKeys groupMax relCount relSum relMax relMin relCountDistinct relAvg groupBy)
+  (group groupCount groupSum groupKeys groupMax groupMaxInt groupMinInt groupAvg relCount relSum relMax relMin relCountDistinct relAvg groupBy)
 end LeanDatabase
