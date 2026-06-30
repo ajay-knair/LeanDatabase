@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Small stdlib-only HTTP wrapper for `lake exe sql_process`.
+Small stdlib-only HTTP wrapper for `sql_process`.
 
 GET  /      serves a demo page.
 POST /      accepts the JSON payload expected by LeanDatabase.Parser.checkEquiv
@@ -30,9 +30,15 @@ MAX_BODY_BYTES = 1_000_000
 
 
 class SqlProcess:
-    def __init__(self, repo_dir: Path, timeout: float = REQUEST_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        repo_dir: Path,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
+        warmup: bool = True,
+    ) -> None:
         self.repo_dir = repo_dir
         self.timeout = timeout
+        self.warmup = warmup
         self.lock = threading.Lock()
         self.ready = threading.Event()
         self.stderr_lines: "queue.Queue[str]" = queue.Queue(maxsize=200)
@@ -43,9 +49,10 @@ class SqlProcess:
     def start(self) -> None:
         self.ready.clear()
         self._clear_responses()
-        print("Starting lake exe sql_process", file=sys.stderr, flush=True)
+        command = self._process_command()
+        print(f"Starting {' '.join(command)}", file=sys.stderr, flush=True)
         self.proc = subprocess.Popen(
-            ["lake", "exe", "sql_process"],
+            command,
             cwd=self.repo_dir,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -60,6 +67,31 @@ class SqlProcess:
         proc = self.proc
         if proc is not None and proc.poll() is None:
             proc.terminate()
+
+    def _process_command(self) -> list[str]:
+        binary = self.repo_dir / ".lake" / "build" / "bin" / "sql_process"
+        if binary.exists() and not self._compiled_binary_is_stale(binary):
+            return ["lake", "env", str(binary)]
+        return ["lake", "exe", "sql_process"]
+
+    def _compiled_binary_is_stale(self, binary: Path) -> bool:
+        binary_mtime = binary.stat().st_mtime
+        tracked_inputs = [
+            self.repo_dir / "sql_process.lean",
+            self.repo_dir / "lakefile.toml",
+            self.repo_dir / "lake-manifest.json",
+            self.repo_dir / "lean-toolchain",
+        ]
+        for path in tracked_inputs:
+            if path.exists() and path.stat().st_mtime > binary_mtime:
+                return True
+
+        lean_database_dir = self.repo_dir / "LeanDatabase"
+        if lean_database_dir.exists():
+            for path in lean_database_dir.rglob("*.lean"):
+                if path.stat().st_mtime > binary_mtime:
+                    return True
+        return False
 
     def wait_until_ready(self) -> None:
         deadline = time.monotonic() + self.timeout
@@ -84,6 +116,27 @@ class SqlProcess:
                 next_notice = now + 10.0
             self.ready.wait(timeout=min(1.0, deadline - now))
         print("sql_process is ready", file=sys.stderr, flush=True)
+
+    def warm_up(self, payload: Any) -> None:
+        started = time.monotonic()
+        print(
+            "Warming sql_process with a sample equivalence check...",
+            file=sys.stderr,
+            flush=True,
+        )
+        response = self.request(payload)
+        elapsed = time.monotonic() - started
+        if not (
+            isinstance(response, dict)
+            and response.get("status") == "ok"
+            and response.get("equivalent") is True
+        ):
+            raise RuntimeError(f"sql_process warmup failed: {response!r}")
+        print(
+            f"sql_process warmup completed in {elapsed:.3f}s",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def _clear_responses(self) -> None:
         while True:
@@ -995,6 +1048,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=PORT, type=int)
     parser.add_argument("--timeout", default=REQUEST_TIMEOUT_SECONDS, type=float)
+    parser.add_argument(
+        "--no-warmup",
+        action="store_true",
+        help="skip the startup sample check that warms Lean's first-query path",
+    )
     return parser.parse_args()
 
 
@@ -1006,8 +1064,14 @@ def main() -> None:
     server: SqlServer | None = None
     sql_process: SqlProcess | None = None
     try:
-        sql_process = SqlProcess(repo_dir, timeout=args.timeout)
+        sql_process = SqlProcess(
+            repo_dir,
+            timeout=args.timeout,
+            warmup=not args.no_warmup,
+        )
         sql_process.wait_until_ready()
+        if sql_process.warmup:
+            sql_process.warm_up(DEFAULT_DEMO)
         server = SqlServer((args.host, args.port), Handler)
         server.sql_process = sql_process
         print(f"Serving on http://{args.host}:{args.port}", file=sys.stderr, flush=True)
