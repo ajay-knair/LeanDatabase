@@ -153,15 +153,24 @@ syntax:90 term:91 " NOT " " IN " "(" sql_query ")" : term
 macro:85 "NOT" t:term:50 : term =>
   `(!$t)
 
+-- SQL `CASE WHEN c1 THEN v1  WHEN c2 THEN v2 … ELSE d END` → nested `if _ then _ else _`.
+-- Conditions are `Decidable` Props (e.g. `age > 30`) or `Bool`; `if` accepts both.
+syntax:90 "CASE" ( "WHEN" term "THEN" term ) + "ELSE" term "END" : term
+macro_rules
+  | `(CASE $[WHEN $cs THEN $vs]* ELSE $d END) => do
+      let mut acc : Term := d
+      for (c, v) in (cs.zip vs).reverse do
+        acc ← `(if $c then $v else $acc)
+      return acc
+
+
 /-!
-## Macros to turn aggregates into variable names.
+## Aggregates (`SUM`/`COUNT`/`AVG`/`MIN`/`MAX`)
+
+The `SUM(term)` / … syntaxes live in `Parser.Context`. Every aggregate — over a column or an
+arbitrary expression — is lifted into a fresh column by `liftAggExprs` (`Parser.Query`) and built
+uniformly by `groupAggExprsE` (`Parser.Context`), dispatched on `AggKind`.
 -/
-macro "SUM" "(" p:ident ")" : term => return mkIdent (p.getId ++ `sum)
-macro "COUNT" "(" p:ident ")" : term => return mkIdent (p.getId ++ `count)
-macro "AVG" "(" p:ident ")" : term => return mkIdent (p.getId ++ `avg)
-macro "MIN" "(" p:ident ")" : term => return mkIdent (p.getId ++ `min)
-macro "MAX" "(" p:ident ")" : term => return mkIdent (p.getId ++ `max)
-macro "COUNT" "(" "*" ")" : term => return mkIdent `countAll
 
 open Meta Elab Term
 def expandStx (str: String) : TermElabM Format := do

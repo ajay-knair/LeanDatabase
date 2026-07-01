@@ -34,6 +34,28 @@ def parseTypedRelFilter  (schemasStr : List (String × List (String × String)))
   let stx ← expandNames labels stx
   elabTypedRelFilterSimple schemas stx
 
+/-- Pull every aggregate call out of a term for the `GROUP BY` arm: each `AGG(expr)` is replaced by
+a fresh column name and recorded `(name, kind, expr)` in the state, to be built uniformly by
+`groupAggExprsE`. Columns and arbitrary expressions go through the same path (`SUM(age)` sums the
+column `age`; `SUM(a*b)` sums the expression). `COUNT(*)` is a row count with a placeholder
+summand that the `count` builder ignores. -/
+partial def liftAggExprs (stx : Syntax) :
+    StateT (Array (Name × AggKind × Syntax.Term)) TermElabM Syntax :=
+  stx.replaceM fun node => do
+    let record (kind : AggKind) (e : Syntax.Term) :
+        StateT (Array (Name × AggKind × Syntax.Term)) TermElabM (Option Syntax) := do
+      let name := Name.mkSimple s!"__agg{(← get).size}"
+      modify (·.push (name, kind, e))
+      return some (mkIdent name)
+    match node with
+    | `(SUM($e:term))   => record .sum e
+    | `(MIN($e:term))   => record .min e
+    | `(MAX($e:term))   => record .max e
+    | `(AVG($e:term))   => record .avg e
+    | `(COUNT(*))       => record .count ⟨Syntax.mkNumLit "0"⟩
+    | `(COUNT($e:term)) => record .count e
+    | _ => return none
+
 /--
 This is the main entry point for parsing a full SQL query (`SELECT` / `FROM` / `WHERE` / `GROUP BY`),
 plus the binary set operators `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT` and parenthesised
@@ -100,14 +122,19 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
         mkAppM ``restriction #[filter, productExpr]
       | none => pure productExpr
     let colStxs := cols.getElems
-    let cols := colStxs.map sqlColTerm
+    let colTerms := colStxs.map sqlColTerm
     let names := colStxs.map sqlColName |>.toList
     let nameStrs := names.map (·.toString)
-    let (m, types) ← elabTypedTupleGroupProjection [(.anonymous, combinedSchema)] cols.toList inGroup filteredExpr
+    -- Lift aggregate expressions (`SUM(a*b)`, `MIN(...)`, …) out of the SELECT list / HAVING.
+    let (liftedRaw, selAggs) ← (colTerms.toList.mapM fun t => liftAggExprs t).run #[]
+    let liftedCols : List Syntax.Term := liftedRaw.map (⟨·⟩)
+    let (m, types) ← elabTypedTupleGroupProjection
+      [(.anonymous, combinedSchema)] liftedCols inGroup filteredExpr selAggs.toList
     let havingFilteredExpr ← match having? with
       | some having => do
+        let (having, havAggs) ← (liftAggExprs having).run #[]
         let h ← elabTypedTupleGroupFilter
-          [(.anonymous, combinedSchema)] having inGroup filteredExpr
+          [(.anonymous, combinedSchema)] having inGroup filteredExpr havAggs.toList
         mkAppM ``restriction #[h, filteredExpr]
       | none => pure filteredExpr
     let nameTypeExpr := toExpr <| nameStrs.zip types
@@ -204,6 +231,10 @@ def egSqlQuery₆ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), 
 
 def egSqlQuery₇ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])] "SELECT SUM(age) AS sum FROM table WHERE age > 30 && isActive && height < 180 GROUP BY isActive HAVING SUM(age) < 100"
 
+-- SELECT CASE WHEN age > 30 THEN 1 ELSE 0 END AS flag ...
+def egSqlQuery₈ := parseSqlQuery [(`table, [(`age, .int), (`isActive, .bool), (`height, .float)])]
+  "SELECT CASE WHEN age > 30 THEN 1 ELSE 0 END AS flag FROM table"
+
 elab "egTypedTupleFilter%" : term => do
   let e ← egTypedTupleFilter
   return e
@@ -259,8 +290,12 @@ elab "egSqlQuery₇" : term => do
   let (e, _) ← egSqlQuery₇
   return e
 
+elab "egSqlQuery₈" : term => do
+  let (e, _) ← egSqlQuery₈
+  return e
 
-#check egTypedTupleFilter%
+
+-- #check egTypedTupleFilter%
 set_option pp.funBinderTypes true in
 /--
 info: fun (table : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float]) ↦
@@ -377,13 +412,13 @@ info: fun table ↦
           decide (table.age > 30) && table.isActive && decide (table.height < 180))
         table).mapByList
     [("count", SQLTypeProxy.int)] fun coords ↦
-    let countAll :=
+    let __agg0 :=
       (fun k ↦
           Int.ofNat
             (groupCount (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) k
               (restriction (fun coords ↦ decide (coords 0 > 30) && coords 1 && decide (coords 2 < 180)) table)))
         ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.int (typedTuple 0) TypedTupleOfList.nil) coords);
-    TypedTupleOfList.cons SQLTypeProxy.int countAll
+    TypedTupleOfList.cons SQLTypeProxy.int __agg0
       TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("count", SQLTypeProxy.int)]))
 -/
@@ -401,13 +436,13 @@ info: fun table ↦
           decide (table.age > 30) && table.isActive && decide (table.height < 180))
         table).mapByList
     [("count", SQLTypeProxy.int)] fun coords ↦
-    let table.age.sum :=
+    let __agg0 :=
       (fun k ↦
           groupSum (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) k
             (restriction (fun coords ↦ decide (coords 0 > 30) && coords 1 && decide (coords 2 < 180)) table)
-            fun typedTuple ↦ typedTuple 0)
+            fun coords ↦ coords 0)
         ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) coords);
-    TypedTupleOfList.cons SQLTypeProxy.int table.age.sum
+    TypedTupleOfList.cons SQLTypeProxy.int __agg0
       TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("count", SQLTypeProxy.int)]))
 -/
@@ -418,13 +453,13 @@ info: fun table ↦
 info: fun table ↦
   (restriction
         (fun coords ↦
-          let table.age.sum :=
+          let __agg0 :=
             (fun k ↦
                 groupSum (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil)
                   k (restriction (fun coords ↦ decide (coords 0 > 30) && coords 1 && decide (coords 2 < 180)) table)
-                  fun typedTuple ↦ typedTuple 0)
+                  fun coords ↦ coords 0)
               ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) coords);
-          decide (table.age.sum < 100))
+          decide (__agg0 < 100))
         (restriction
           (fun coords ↦
             let table.age := coords 0;
@@ -433,19 +468,29 @@ info: fun table ↦
             decide (table.age > 30) && table.isActive && decide (table.height < 180))
           table)).mapByList
     [("sum", SQLTypeProxy.int)] fun coords ↦
-    let table.age.sum :=
+    let __agg0 :=
       (fun k ↦
           groupSum (fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) k
             (restriction (fun coords ↦ decide (coords 0 > 30) && coords 1 && decide (coords 2 < 180)) table)
-            fun typedTuple ↦ typedTuple 0)
+            fun coords ↦ coords 0)
         ((fun typedTuple ↦ TypedTupleOfList.cons SQLTypeProxy.bool (typedTuple 1) TypedTupleOfList.nil) coords);
-    TypedTupleOfList.cons SQLTypeProxy.int table.age.sum
+    TypedTupleOfList.cons SQLTypeProxy.int __agg0
       TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
   TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("sum", SQLTypeProxy.int)]))
 -/
 #guard_msgs in
 #check egSqlQuery₇
 
+/--
+info: fun table ↦
+  TypedRelation.mapByList table [("flag", SQLTypeProxy.int)] fun coords ↦
+    let table.age := coords 0;
+    TypedTupleOfList.cons SQLTypeProxy.int (if table.age > 30 then 1 else 0)
+      TypedTupleOfList.nil : TypedRelationOfList [SQLTypeProxy.int, SQLTypeProxy.bool, SQLTypeProxy.float] →
+  TypedRelation (colTypeOfList (List.map (fun x ↦ x.2) [("flag", SQLTypeProxy.int)]))
+-/
+#guard_msgs in
+#check egSqlQuery₈
 
 set_option pp.funBinderTypes true in
 example : egTypedTupleFilter% = egTypedTupleFilter%% := by
