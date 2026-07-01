@@ -101,6 +101,20 @@ theorem groupSum_case_eq_groupSum_where (key : TypedTuple colType → K) (k : K)
   simp only [groupSum, sum_case_eq_sum_where]
   grind [group, groupSum, restriction, Finset.filter_filter]
 
+/-- The `Prop`-condition form of `groupSum_case_eq_groupSum_where`. A `CASE WHEN <cond>` elaborates
+    its condition as a `Decidable` `Prop` (e.g. `status = 'completed'`), whereas a `WHERE` predicate
+    is the `Bool` `decide (…)`; this lemma is what actually lets `sql_equiv` fold a `SUM(CASE)` into
+    the matching `WHERE`-restricted `SUM`. -/
+@[simp]
+theorem groupSum_caseProp_eq_groupSum_where (key : TypedTuple colType → K) (k : K)
+    (P : TypedTuple colType → Prop) [DecidablePred P] (f : TypedTuple colType → Int)
+    (rel : TypedRelation colType) :
+    groupSum key k rel (fun t => if P t then f t else 0)
+      = groupSum key k (restriction (fun t => decide (P t)) rel) f := by
+  have : (fun t => if P t then f t else 0) = (fun t => if decide (P t) then f t else 0) := by
+    funext t; simp
+  rw [this, groupSum_case_eq_groupSum_where]
+
 /-- **`COUNT` coalesce.** `LEFT JOIN`+`COALESCE(_,0)` count equals the correlated count. -/
 @[simp] theorem coalesce_groupCount (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType) :
     (if k ∈ groupKeys key rel then groupCount key k rel else 0) = groupCount key k rel := by

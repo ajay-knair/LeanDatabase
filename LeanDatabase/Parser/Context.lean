@@ -342,10 +342,14 @@ def rightProj (t : TypedTuple (colTypeOfProduct colType1 colType2)) : TypedTuple
 
 end helpers
 
-def TypedRelation.mapByList {colType : Fin n → Type} [∀ i, DecidableEq (colType i)] (r: TypedRelation colType) (l: List (String × SQLTypeProxy)) (f: TypedTuple colType → TypedTuple (colTypeOfList (l.map (·.2)))) :
-    TypedRelation (colTypeOfList (l.map (·.2))) :=
-      let h : (l.map (·.2)).length = (l.map (·.1)).length := by grind
-      TypedRelation.map f (h ▸ (l.map (·.1)|>.get)) r
+/-- `SELECT`/`GROUP BY` output: map each row through `f` (the projection), labelled by `names`.
+The result type `colTypeOfList types` is keyed on the **literal** `types` list (not `l.map (·.2)`),
+so its `DecidableEq` instance reduces — `TypedRelation.ext`/`sql_equiv` then applies without hitting
+an instances-transparency wall. -/
+def TypedRelation.mapByList {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
+    {types : List SQLTypeProxy} (r : TypedRelation colType) (names : List String)
+    (f : TypedTuple colType → TypedTupleOfList types) : TypedRelationOfList types :=
+  { labels := fun i => names.getD i.val "", rows := r.rows.image f }
 
 /-! ## Per-operator elaborators -/
 

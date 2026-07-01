@@ -15,7 +15,61 @@ associativity (those would loop), and no two rules sharing a left-hand side.
 
 namespace LeanDatabase
 
+open LeanDatabase.TypedAgg
+
 variable {n : Nat} {colType : Fin n → Type} [∀ i, DecidableEq (colType i)]
+
+/-- **`HAVING SUM(...) ≠ 0` ⟹ the key survived**: a non-zero group `SUM` witnesses that the group is
+non-empty, i.e. the key occurs among the aggregated table's keys. The `HAVING` counterpart of
+`groupSum_eq_zero_of_not_mem`; lets `sql_equiv` recover "this key passed a `HAVING SUM(...) > c ≥ 0`
+test, so it is present after the `WHERE`-restricted `GROUP BY`". -/
+@[grind →] theorem mem_groupKeys_of_groupSum_ne_zero {K : Type} [DecidableEq K]
+    (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) (h : groupSum key k rel f ≠ 0) : k ∈ groupKeys key rel := by
+  by_contra hk
+  exact h (groupSum_eq_zero_of_not_mem key k rel f hk)
+
+/-- The witness form of `mem_groupKeys_of_groupSum_ne_zero`: a non-zero group `SUM` produces an
+actual row of the group. Handed to `grind` directly so it can discharge "`HAVING SUM(...) ≠ 0` ⟹ ∃
+such a row" without having to compose `mem_groupKeys_of_groupSum_ne_zero` with `mem_groupKeys`. -/
+@[grind →] theorem exists_mem_of_groupSum_ne_zero {K : Type} [DecidableEq K]
+    (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType)
+    (f : TypedTuple colType → Int) (h : groupSum key k rel f ≠ 0) :
+    ∃ t ∈ rel.rows, key t = k := by
+  rw [← mem_groupKeys]
+  exact mem_groupKeys_of_groupSum_ne_zero key k rel f h
+
+/-- **`groupKeys` is monotone under `WHERE`**: a key present after a `restriction` is present in the
+whole relation. The other half of matching two `GROUP BY`s whose bases differ by a `WHERE`. -/
+@[grind →] theorem mem_groupKeys_of_mem_restriction {K : Type} [DecidableEq K]
+    (key : TypedTuple colType → K) (p : TypedTuple colType → Bool) (rel : TypedRelation colType)
+    (k : K) (h : k ∈ groupKeys key (restriction p rel)) : k ∈ groupKeys key rel := by
+  simp only [mem_groupKeys, restriction, Finset.mem_filter] at h ⊢
+  obtain ⟨t, ⟨ht, _⟩, hk⟩ := h
+  exact ⟨t, ht, hk⟩
+
+/-- **`HAVING` absorbs a `WHERE` on the base of a `GROUP BY`.** Two `GROUP BY`s whose per-key output
+`mk` and `HAVING` predicate `H` both factor through the group key produce the same table even when
+one scans `base` and the other its `WHERE p` `restriction` — provided every `H`-surviving row's key
+still occurs after the `WHERE` (`hpres`). This is the whole-relation content of a `SUM(CASE)`+`HAVING`
+≡ `WHERE`+`SUM`+`HAVING` rewrite; `hpres` is discharged from `HAVING SUM(...) > c ≥ 0` via
+`exists_mem_of_groupSum_ne_zero`. -/
+theorem image_where_absorb {K β : Type} [DecidableEq K] [DecidableEq β]
+    (key : TypedTuple colType → K) (mk : TypedTuple colType → β) (H : TypedTuple colType → Bool)
+    (p : TypedTuple colType → Bool) (base : TypedRelation colType)
+    (hH : ∀ s t, key s = key t → H s = H t)
+    (hmk : ∀ s t, key s = key t → mk s = mk t)
+    (hpres : ∀ t ∈ base.rows, H t = true → key t ∈ groupKeys key (restriction p base)) :
+    (restriction H base).rows.image mk = (restriction H (restriction p base)).rows.image mk := by
+  apply Finset.ext; intro x
+  simp only [Finset.mem_image, restriction, Finset.mem_filter]
+  constructor
+  · rintro ⟨t, ⟨ht, hHt⟩, rfl⟩
+    obtain ⟨s, hs, hks⟩ := (mem_groupKeys _ _ _).mp (hpres t ht hHt)
+    simp only [restriction, Finset.mem_filter] at hs
+    exact ⟨s, ⟨⟨hs.1, hs.2⟩, (hH s t hks).trans hHt⟩, hmk s t hks⟩
+  · rintro ⟨t, ⟨⟨ht, _⟩, hHt⟩, rfl⟩
+    exact ⟨t, ⟨ht, hHt⟩, rfl⟩
 
 /-- The empty relation has no rows. Exposed as a `@[simp]` rewrite (without tagging `emptyRel`
 itself, which lives in `TypedRelation`) so `sql_equiv` can collapse `∅`-table queries — e.g.

@@ -154,13 +154,15 @@ macro:85 "NOT" t:term:50 : term =>
   `(!$t)
 
 -- SQL `CASE WHEN c1 THEN v1  WHEN c2 THEN v2 … ELSE d END` → nested `if _ then _ else _`.
--- Conditions are `Decidable` Props (e.g. `age > 30`) or `Bool`; `if` accepts both.
+-- The condition is forced to `Bool` (`($c : Bool)` coerces a `Decidable` `Prop` like `age > 30` to
+-- `decide (…)`), so a `CASE` condition has the SAME shape as a `WHERE` predicate — one Bool lemma
+-- (`groupSum_case_eq_groupSum_where`) then folds `SUM(CASE)` into the matching `WHERE`+`SUM`.
 syntax:90 "CASE" ( "WHEN" term "THEN" term ) + "ELSE" term "END" : term
 macro_rules
   | `(CASE $[WHEN $cs THEN $vs]* ELSE $d END) => do
       let mut acc : Term := d
       for (c, v) in (cs.zip vs).reverse do
-        acc ← `(if $c then $v else $acc)
+        acc ← `(if ($c : Bool) then $v else $acc)
       return acc
 
 
