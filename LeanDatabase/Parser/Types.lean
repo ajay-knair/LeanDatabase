@@ -120,6 +120,19 @@ def TypedTupleOfList.cons (t : SQLTypeProxy) (x: t.type) (ts : TypedTupleOfList 
   | 0 => by simp [colTypeOfList]; exact x
   | j+1 => ts ⟨j, by grind⟩
 
+/-- A single-column `TypedTupleOfList` is determined by its one entry — lets `simp`/`grind` reduce
+a `key t = k` equality between wrapped `GROUP BY` keys down to plain component equality, which is
+what the `HAVING`/`WHERE` predicate is actually stated in terms of. -/
+@[simp]
+theorem TypedTupleOfList.cons_nil_inj {t : SQLTypeProxy} {x y : t.type} :
+    (TypedTupleOfList.cons t x TypedTupleOfList.nil = TypedTupleOfList.cons t y TypedTupleOfList.nil) ↔ x = y := by
+  constructor
+  · intro h
+    have := congrFun h (0 : Fin 1)
+    simpa [TypedTupleOfList.cons, colTypeOfList] using this
+  · rintro rfl
+    rfl
+
 @[reducible]
 def TypedTupleOfList.append (ts1 : TypedTupleOfList l1) (ts2 : TypedTupleOfList l2) :
   TypedTupleOfList (l1 ++ l2) := match l1 with
