@@ -54,6 +54,25 @@ theorem groupCount_restrict_of_forall (key : TypedTuple colType → K) (k : K)
     groupCount key k (restriction p rel) = groupCount key k rel := by
   simp only [groupCount, group_restrict_of_forall key k rel p hp]
 
+/-- `simp`-facing restatement of `groupCount_restrict_of_forall`, over a `Prop` predicate `P`
+instead of a `Bool` one — see `groupAvg_filter_restrict_of_forall` for why this shape (rather than
+the `Bool` one above) is what `sql_equiv` actually needs to find. -/
+@[simp]
+theorem groupCount_filter_restrict_of_forall {P : TypedTuple colType → Prop} [DecidablePred P]
+    (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType)
+    (hp : ∀ t, key t = k → P t) :
+    groupCount key k { labels := rel.labels, rows := {x ∈ rel.rows | P x} }
+      = groupCount key k rel := by
+  have hfilter : { labels := rel.labels, rows := {x ∈ rel.rows | P x} } = restriction (fun t => decide (P t)) rel := by
+    apply TypedRelation.ext
+    · rfl
+    · simp only [restriction]
+      apply Finset.filter_congr
+      intro x _
+      simp
+  rw [hfilter]
+  exact groupCount_restrict_of_forall key k rel (fun t => decide (P t)) (fun t ht => by simp [hp t ht])
+
 /-- `SUM(f)` over the group of key `k`. -/
 def groupSum (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType)
     (f : TypedTuple colType → Int) : Int :=
@@ -65,6 +84,25 @@ theorem groupSum_restrict_of_forall (key : TypedTuple colType → K) (k : K)
     (hp : ∀ t, key t = k → p t = true) :
     groupSum key k (restriction p rel) f = groupSum key k rel f := by
   simp only [groupSum, group_restrict_of_forall key k rel p hp]
+
+/-- `simp`-facing restatement of `groupSum_restrict_of_forall`, over a `Prop` predicate `P` instead
+of a `Bool` one — see `groupAvg_filter_restrict_of_forall` for why this shape (rather than the
+`Bool` one above) is what `sql_equiv` actually needs to find. -/
+@[simp]
+theorem groupSum_filter_restrict_of_forall {P : TypedTuple colType → Prop} [DecidablePred P]
+    (key : TypedTuple colType → K) (k : K) (rel : TypedRelation colType) (f : TypedTuple colType → Int)
+    (hp : ∀ t, key t = k → P t) :
+    groupSum key k { labels := rel.labels, rows := {x ∈ rel.rows | P x} } f
+      = groupSum key k rel f := by
+  have hfilter : { labels := rel.labels, rows := {x ∈ rel.rows | P x} } = restriction (fun t => decide (P t)) rel := by
+    apply TypedRelation.ext
+    · rfl
+    · simp only [restriction]
+      apply Finset.filter_congr
+      intro x _
+      simp
+  rw [hfilter]
+  exact groupSum_restrict_of_forall key k rel f (fun t => decide (P t)) (fun t ht => by simp [hp t ht])
 
 /-- `SELECT DISTINCT key FROM rel` — the group keys present. -/
 def groupKeys (key : TypedTuple colType → K) (rel : TypedRelation colType) : Finset K :=
