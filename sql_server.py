@@ -58,6 +58,8 @@ class SqlProcess:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         threading.Thread(target=self._drain_stderr, daemon=True).start()
@@ -69,28 +71,14 @@ class SqlProcess:
             proc.terminate()
 
     def _process_command(self) -> list[str]:
-        binary = self.repo_dir / ".lake" / "build" / "bin" / "sql_process"
-        if binary.exists() and not self._compiled_binary_is_stale(binary):
-            return ["lake", "env", str(binary)]
-        return ["lake", "exe", "sql_process"]
-
-    def _compiled_binary_is_stale(self, binary: Path) -> bool:
-        binary_mtime = binary.stat().st_mtime
-        tracked_inputs = [
-            self.repo_dir / "sql_process.lean",
-            self.repo_dir / "lakefile.toml",
-            self.repo_dir / "lake-manifest.json",
-            self.repo_dir / "lean-toolchain",
-        ]
-        for path in tracked_inputs:
-            if path.exists() and path.stat().st_mtime > binary_mtime:
-                return True
-
-        lean_database_dir = self.repo_dir / "LeanDatabase"
-        if lean_database_dir.exists():
-            for path in lean_database_dir.rglob("*.lean"):
-                if path.stat().st_mtime > binary_mtime:
-                    return True
+        # `sql_process`'s native exe can't be linked on Windows with `supportInterpreter`
+        # enabled (the PE format's 65535-exported-symbol limit, blown past by Mathlib),
+        # but without it, `sql_process` fails at runtime on `IO.getRandomBytes` (no native
+        # implementation without the interpreter fallback). Running the source file
+        # through the interpreter sidesteps both problems: imports (Mathlib, LeanDatabase)
+        # are still loaded from pre-built `.olean`s, only `sql_process.lean` itself is
+        # interpreted, so startup is not meaningfully slower than the native exe.
+        return ["lake", "env", "lean", "--run", "sql_process.lean"]
         return False
 
     def wait_until_ready(self) -> None:

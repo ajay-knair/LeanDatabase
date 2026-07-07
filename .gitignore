@@ -1,4 +1,6 @@
 /.lake
+presentation/.lake
+presentation/_slides
 
 # Cross-skill SQL-equivalence instance files (not pushed)
 **/CrossSkill/Sf*.lean
