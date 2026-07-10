@@ -35,21 +35,14 @@ The `key` is kept only for documentation; it has no effect on the resulting set 
 @[simp, grind =] theorem orderBy_eq (key : TypedTuple colType → K) (rel : TypedRelation colType) :
     orderBy key rel = rel := rfl
 
-/-- `LIMIT k` — modelled as the identity; the *only* observable contract is on cardinality (see
-below), since an unordered set gives no canonical "first `k`". -/
-@[simp, grind] def limit (k : Nat) (rel : TypedRelation colType) : TypedRelation colType := rel
+/-- `LIMIT k` is opaque under set semantics: without row order, the choice of which rows survive is
+unobservable. So `limit` is only equal to itself; it does not erase to the identity. Use
+`limit_congr` to rewrite through equal sub-relations. -/
+opaque limit (k : Nat) (rel : TypedRelation colType) : TypedRelation colType := rel
 
-/-- `LIMIT` is a no-op on the row-set. Tagged so `sql_equiv` erases it. -/
-@[simp, grind =] theorem limit_eq (k : Nat) (rel : TypedRelation colType) :
-    limit k rel = rel := rfl
-
-/-- The cardinality is unchanged (our model never actually drops rows). -/
-theorem limit_card (k : Nat) (rel : TypedRelation colType) :
-    (limit k rel).rows.card = rel.rows.card := rfl
-
-/-- **The cardinality contract**: when the input already fits the bound, `LIMIT k` is a genuine
-no-op — the regime where `LIMIT`-equivalence reduces to plain set-equivalence. -/
-theorem limit_noop_of_card_le {k : Nat} {rel : TypedRelation colType} (h : rel.rows.card ≤ k) :
-    (limit k rel).rows.card ≤ k := by simpa using h
+/-- `LIMIT` respects equality of its argument. This is what lets `sql_equiv` prove
+`q₁ LIMIT k = q₂ LIMIT k` from `q₁ = q₂` *without* being able to erase `LIMIT` (which is unsound). -/
+theorem limit_congr {k : Nat} {r1 r2 : TypedRelation colType} (h : r1 = r2) :
+    limit k r1 = limit k r2 := by rw [h]
 
 end LeanDatabase

@@ -30,6 +30,7 @@ Possible future work: extend this tactic to also be able to disprove using `plau
 macro "sql_equiv" : tactic => `(tactic|
   (
    repeat (first
+     | refine limit_congr ?_
      | (apply TypedRelation.ext <;> try rfl)
      | refine Finset.filter_congr (fun _ _ => ?_)
      | refine Finset.image_congr (fun _ _ => ?_)

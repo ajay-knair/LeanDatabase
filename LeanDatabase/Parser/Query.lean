@@ -82,6 +82,7 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
     unless schemaL.map (·.2) == schemaR.map (·.2) do
       throwError "set operation requires both queries to have the same column types"
     let opName ← match op with
+      -- Set semantics: a query denotes its result SET, so `UNION ALL` and `UNION` coincide
       | `(sql_setop| UNION ALL) | `(sql_setop| UNION) => pure ``union
       | `(sql_setop| INTERSECT) => pure ``intersection
       | `(sql_setop| EXCEPT)    => pure ``minus
@@ -89,7 +90,7 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
     let combined ← mkAppM opName #[lamL.beta vars.toArray, lamR.beta vars.toArray]
     return (← mkLambdaFVars vars.toArray combined, schemaL)
   | `(sql_query| SELECT $[DISTINCT%$distinct?]? $sel:sql_cols FROM $dbs:sql_from $[WHERE $filter?]?
-      $[ORDER BY $ord:sql_col,*]? $[LIMIT $lim:num]? $[;]?) => do
+      $[ORDER BY $ord:sql_order_item,*]? $[LIMIT $lim:num]? $[;]?) => do
     let (productExpr, combinedSchema) ← productPair dbs
     let filteredExpr ← match filter? with
       | some filter => elabWhere productExpr combinedSchema filter
@@ -110,7 +111,7 @@ partial def elabSqlQueryCore (tableVars : List (Expr × Name × List (Name × SQ
     let rel ← match ord with
       | none => pure rel
       | some ords => do
-        let (key, _) ← elabTypedTupleProjection [(.anonymous, outSchema)] (ords.getElems.toList.map sqlColTerm)
+        let (key, _) ← elabTypedTupleProjection [(.anonymous, outSchema)] (ords.getElems.toList.map (fun o => sqlColTerm (sqlOrderCol o)))
         mkAppM ``orderBy #[key, rel]
     let rel ← match lim with
       | none => pure rel
